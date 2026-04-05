@@ -24,6 +24,8 @@
 #include <linux/delay.h>
 #include <linux/kernel.h>
 #include <linux/firmware.h>
+#include <linux/fs.h>
+#include <linux/slab.h>
 #include <linux/module.h>
 #include <linux/pci.h>
 #ifdef CONFIG_DRM_SGPU_EXYNOS
@@ -315,7 +317,8 @@ static int sgpu_request_firmware(struct amdgpu_device *adev)
 }
 
 #else /* !CONFIG_DRM_SGPU_BUILTIN_FIRMWARE */
-MODULE_FIRMWARE("sgpu/vangogh_lite_unified_evt0.bin");
+MODULE_FIRMWARE("sgpu/vangogh_lite_unified_evt0_b.bin");
+MODULE_FIRMWARE("sgpu/vangogh_lite_unified_evt0_e.bin");
 MODULE_FIRMWARE("sgpu/vangogh_lite_unified_evt1.bin");
 
 #ifdef CONFIG_DRM_SGPU_EXYNOS
@@ -333,13 +336,53 @@ static unsigned int sgpu_chip_revision(uint32_t grbm_chip_rev)
 	return MGFX_EVT(grbm_chip_rev) - 1; /* MGFX_EVT() returns 1 for EVT0. */
 }
 #endif
+
+static bool check_sgpu_variant(void)
+{
+	struct file *f;
+	char *buf, *cursor, *line;
+	loff_t pos = 0;
+	ssize_t len;
+	bool is_e = false;
+
+	buf = kzalloc(4096, GFP_KERNEL);
+	if (!buf)
+		return false;
+
+	f = filp_open("/proc/bootconfig", O_RDONLY, 0);
+	if (IS_ERR(f))
+		goto out_free;
+
+	len = kernel_read(f, buf, 4095, &pos);
+	filp_close(f, NULL);
+	if (len <= 0)
+		goto out_free;
+	buf[len] = '\0';
+
+	cursor = buf;
+	while ((line = strsep(&cursor, "\n")) != NULL) {
+		line = strim(line);
+		if (!strcmp(line, "androidboot.em.model = \"SM-A556E\"")) {
+			is_e = true;
+			break;
+		}
+	}
+
+out_free:
+	kfree(buf);
+	return is_e;
+}
+
 static const char *firmware_name(uint32_t grbm_chip_rev)
 {
-	static char firmware_name_template[] = "sgpu/vangogh_lite_unified_evt0.bin";
+	static char firmware_name_buf[] = "sgpu/vangogh_lite_unified_evt0_b.bin";
+	const char *variant = check_sgpu_variant() ? "_e" : "_b";
 
-	scnprintf(firmware_name_template, sizeof(firmware_name_template),
-		  "sgpu/vangogh_lite_unified_evt%d.bin", sgpu_chip_revision(grbm_chip_rev));
-	return firmware_name_template;
+	scnprintf(firmware_name_buf, sizeof(firmware_name_buf),
+		  "sgpu/vangogh_lite_unified_evt%d%s.bin",
+		  sgpu_chip_revision(grbm_chip_rev), variant);
+	DRM_INFO("SGPU: firmware path resolved to: %s\n", firmware_name_buf);
+	return firmware_name_buf;
 }
 
 #if IS_ENABLED(CONFIG_EXYNOS_IMGLOADER)
