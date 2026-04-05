@@ -24,6 +24,7 @@
 #include <linux/delay.h>
 #include <linux/kernel.h>
 #include <linux/firmware.h>
+#include <linux/of.h>
 #include <linux/module.h>
 #include <linux/pci.h>
 #ifdef CONFIG_DRM_SGPU_EXYNOS
@@ -315,8 +316,10 @@ static int sgpu_request_firmware(struct amdgpu_device *adev)
 }
 
 #else /* !CONFIG_DRM_SGPU_BUILTIN_FIRMWARE */
-MODULE_FIRMWARE("sgpu/vangogh_lite_unified_evt0.bin");
-MODULE_FIRMWARE("sgpu/vangogh_lite_unified_evt1.bin");
+MODULE_FIRMWARE("sgpu/vangogh_lite_unified_evt0_b.bin");
+MODULE_FIRMWARE("sgpu/vangogh_lite_unified_evt0_e.bin");
+MODULE_FIRMWARE("sgpu/vangogh_lite_unified_evt1_b.bin");
+MODULE_FIRMWARE("sgpu/vangogh_lite_unified_evt1_e.bin");
 
 #ifdef CONFIG_DRM_SGPU_EXYNOS
 /*
@@ -335,11 +338,33 @@ static unsigned int sgpu_chip_revision(uint32_t grbm_chip_rev)
 #endif
 static const char *firmware_name(uint32_t grbm_chip_rev)
 {
-	static char firmware_name_template[] = "sgpu/vangogh_lite_unified_evt0.bin";
+        static char firmware_name_buf[] = "sgpu/vangogh_lite_unified_evt0_b.bin";
+        const char *variant;
+        const char *model;
+        struct device_node *root;
 
-	scnprintf(firmware_name_template, sizeof(firmware_name_template),
-		  "sgpu/vangogh_lite_unified_evt%d.bin", sgpu_chip_revision(grbm_chip_rev));
-	return firmware_name_template;
+        root = of_find_node_by_path("/");
+        model = of_get_property(root, "model", NULL);
+
+        DRM_INFO("SGPU: DT model string: %s\n", model ? model : "NULL");
+
+        if (model && strstr(model, "MEA")) {
+                variant = "_e";
+                DRM_INFO("SGPU: Detected MEA (E variant), loading _e firmware\n");
+        } else {
+                variant = "_b";
+                DRM_INFO("SGPU: Detected EUR (B variant) or unknown, loading _b firmware\n");
+        }
+
+        of_node_put(root);
+
+        scnprintf(firmware_name_buf, sizeof(firmware_name_buf),
+                  "sgpu/vangogh_lite_unified_evt%d%s.bin",
+                  sgpu_chip_revision(grbm_chip_rev), variant);
+
+        DRM_INFO("SGPU: firmware path resolved to: %s\n", firmware_name_buf);
+
+        return firmware_name_buf;
 }
 
 #if IS_ENABLED(CONFIG_EXYNOS_IMGLOADER)
