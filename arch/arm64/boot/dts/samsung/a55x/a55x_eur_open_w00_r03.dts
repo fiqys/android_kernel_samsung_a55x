@@ -2700,7 +2700,6 @@
 		tsp_avdd_ldo-supply = <&fixed_regulator2>;
 #endif
 		sec,irq_gpio = <SEC_GPIO_REF(AP,gpc10,gpc10,0) 0>;
-		support_dex_mode;
 		sec,enable_sysinput_enabled;
 		support_open_short_test;
 	};
