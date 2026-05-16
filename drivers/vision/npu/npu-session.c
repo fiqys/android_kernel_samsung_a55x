@@ -284,7 +284,9 @@ static inline u32 __calc_imb_req_chunk_v1(struct npu_memory_buffer *IMB_mem_buf,
 	return req_chunk_cnt;
 }
 
+#ifndef MAX
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
+#endif
 static inline u32 __calc_imb_req_chunk_v2(struct npu_session *session, bool free)
 {
 	u32 req_chunk_cnt, req_size;
