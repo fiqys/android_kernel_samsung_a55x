@@ -339,31 +339,34 @@ static unsigned int sgpu_chip_revision(uint32_t grbm_chip_rev)
 static const char *firmware_name(uint32_t grbm_chip_rev)
 {
         static char firmware_name_buf[] = "sgpu/vangogh_lite_unified_evt0_b.bin";
-        const char *variant;
-        const char *model;
-        struct device_node *root;
+        const char *variant = "_b";
+        struct file *f;
+        char *buf;
+        loff_t pos = 0;
+        ssize_t len;
+        const size_t bufsize = 4096;
 
-        root = of_find_node_by_path("/");
-        model = of_get_property(root, "model", NULL);
-
-        DRM_INFO("SGPU: DT model string: %s\n", model ? model : "NULL");
-
-        if (model && strstr(model, "MEA")) {
-                variant = "_e";
-                DRM_INFO("SGPU: Detected MEA (E variant), loading _e firmware\n");
-        } else {
-                variant = "_b";
-                DRM_INFO("SGPU: Detected EUR (B variant) or unknown, loading _b firmware\n");
+        buf = kzalloc(bufsize, GFP_KERNEL);
+        if (buf) {
+                f = filp_open("/proc/bootconfig", O_RDONLY, 0);
+                if (!IS_ERR(f)) {
+                        len = kernel_read(f, buf, bufsize - 1, &pos);
+                        if (len > 0) {
+                                buf[len] = '\0';
+                                if (strstr(buf, "androidboot.em.model = \"SM-A556E\""))
+                                        variant = "_e";
+                        }
+                        filp_close(f, NULL);
+                }
+                kfree(buf);
         }
 
-        of_node_put(root);
+        DRM_INFO("SGPU: detected variant: %s\n", variant);
 
         scnprintf(firmware_name_buf, sizeof(firmware_name_buf),
                   "sgpu/vangogh_lite_unified_evt%d%s.bin",
                   sgpu_chip_revision(grbm_chip_rev), variant);
-
         DRM_INFO("SGPU: firmware path resolved to: %s\n", firmware_name_buf);
-
         return firmware_name_buf;
 }
 
