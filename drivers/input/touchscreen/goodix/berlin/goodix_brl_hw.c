@@ -1409,8 +1409,6 @@ static void goodix_parse_status(struct goodix_ts_core *cd, u8 *buf)
 static void goodix_ts_report_status(struct goodix_ts_core *cd, struct goodix_ts_event *ts_event)
 {
   u8 prox_raw = 0, prox_report = 0;
-  static bool prox_state_valid;
-  static u8 prox_last_report;
 
   if (ts_event->status_type == TYPE_STATUS_EVENT_INFO) {
     if (ts_event->status_id == SEC_TS_READY_STATUS) {
@@ -1433,11 +1431,13 @@ static void goodix_ts_report_status(struct goodix_ts_core *cd, struct goodix_ts_
       prox_raw = ts_event->status_data[0] ? 1 : 0;
       prox_report = (!prox_raw) * 5;
 
+      if (ktime_ms_delta(ktime_get(), cd->prox_resume_time) < 200)
+        return;
+
       cd->ts_event.hover_event = prox_report;
 
-      if (!prox_state_valid || prox_last_report != prox_report) {
-        prox_last_report = prox_report;
-        prox_state_valid = true;
+      if (cd->prox_last_report != prox_report) {
+        cd->prox_last_report = prox_report;
         sec_input_proximity_report(cd->bus->dev, prox_report);
       }
     } else if (ts_event->status_id == STATUS_EVENT_VENDOR_STATE_CHANGED) {

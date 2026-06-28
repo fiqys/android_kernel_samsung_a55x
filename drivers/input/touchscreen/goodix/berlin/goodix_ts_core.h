@@ -8,6 +8,7 @@
 #include <asm/unaligned.h>
 #include <linux/vmalloc.h>
 #include <linux/kthread.h>
+#include <linux/ktime.h>
 #include <linux/delay.h>
 #include <linux/mutex.h>
 #include <linux/platform_device.h>
@@ -679,6 +680,8 @@ struct goodix_ts_core {
 	unsigned int specific_fw_update_ver;
 
 	u32 edgehandler_direction_max;
+	u8 prox_last_report;
+	ktime_t prox_resume_time;
 };
 
 /* external module structures */
