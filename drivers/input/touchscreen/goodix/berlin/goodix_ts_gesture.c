@@ -320,9 +320,11 @@ static int gsx_gesture_before_suspend(struct goodix_ts_core *cd,
 	if (ret < 0)
 		ts_err("failed to enter lowpowermode");
 
-	ret = hw_ops->ed_enable(cd, cd->plat_data->ed_enable ? cd->plat_data->ed_enable : 3);
-	if (ret < 0)
-		ts_err("failed to re-enable proximity in lowpowermode");
+	if (cd->plat_data->ed_enable) {
+		ret = hw_ops->ed_enable(cd, cd->plat_data->ed_enable);
+		if (ret < 0)
+			ts_err("failed to re-enable proximity in lowpowermode");
+	}
 
 	cd->lpm_coord_event_cnt = 0;
 	cd->prox_resume_time = ktime_get();
@@ -341,12 +343,16 @@ static int gsx_gesture_before_suspend(struct goodix_ts_core *cd,
 static int gsx_gesture_before_resume(struct goodix_ts_core *cd,
 		struct goodix_ext_module *module)
 {
+	const struct goodix_ts_hw_ops *hw_ops = cd->hw_ops;
+
 	disable_irq_wake(cd->irq);
 	gsx_set_lowpowermode(cd, TO_TOUCH_MODE);
 
 	if (cd->plat_data->ed_enable) {
 		cd->prox_last_report = 0xFF;
 		cd->prox_resume_time = ktime_get();
+	} else {
+		hw_ops->ed_enable(cd, 0);
 	}
 
 	sec_input_set_grip_type(cd->bus->dev, ONLY_EDGE_HANDLER);
