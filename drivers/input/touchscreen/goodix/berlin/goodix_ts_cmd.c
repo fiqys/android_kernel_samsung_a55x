@@ -1680,7 +1680,10 @@ static int ear_detect_enable_save(void *device_data)
 		return SEC_ERROR;
 	}
 
-	core_data->plat_data->ed_enable = sec->cmd_param[0];
+	if (atomic_read(&core_data->plat_data->power_state) == SEC_INPUT_STATE_LPM)
+		core_data->plat_data->ed_enable = sec->cmd_param[0];
+	else
+		core_data->plat_data->ed_enable = sec->cmd_param[0] ? 3 : 0;
 	ts_info("ear detect mode(%d)", core_data->plat_data->ed_enable);
 
 	sec->cmd_state = SEC_CMD_STATUS_OK;
@@ -2912,7 +2915,10 @@ static ssize_t protos_event_store(struct device *dev,
 		return -EINVAL;
 	}
 
-	core_data->plat_data->ed_enable = data;
+	if (atomic_read(&core_data->plat_data->power_state) == SEC_INPUT_STATE_LPM)
+		core_data->plat_data->ed_enable = data;
+	else
+		core_data->plat_data->ed_enable = data ? 3 : 0;
 	ts_info("ear detect mode(%d)", core_data->plat_data->ed_enable);
 
 	if (atomic_read(&core_data->plat_data->power_state) == SEC_INPUT_STATE_POWER_OFF) {

@@ -2493,6 +2493,7 @@ static int goodix_ts_probe(struct platform_device *pdev)
 	/* touch core layer is a platform driver */
 	core_data->pdev = pdev;
 	core_data->bus = bus_interface;
+	core_data->prox_last_report = 0xFF;
 
 	if (IS_ENABLED(CONFIG_OF) && bus_interface->dev->of_node) {
 		/* parse devicetree property */
