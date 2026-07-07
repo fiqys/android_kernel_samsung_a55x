@@ -39,8 +39,8 @@
 #endif
 		zm918_motor,drv-freq = <175>;
 		zm918_motor,reso-freq = <175>;
-		zm918_motor,cont_level = <0x36>;		/* default cont strength */
-		zm918_motor,fifo_level = <0x80>;		/* default fifo strength */
+		zm918_motor,cont_level = <0x7f>;		/* default cont strength */
+		zm918_motor,fifo_level = <0x7f>;		/* default fifo strength */
 		zm918,vib_mode = <3>;					/* Setting cont mode as default */
 		samsung,vib_type = "LINEAR_INDEX";
 	};
