@@ -1408,8 +1408,6 @@ static void goodix_parse_status(struct goodix_ts_core *cd, u8 *buf)
 
 static void goodix_ts_report_status(struct goodix_ts_core *cd, struct goodix_ts_event *ts_event)
 {
-  u8 prox_raw = 0, prox_report = 0;
-
   if (ts_event->status_type == TYPE_STATUS_EVENT_INFO) {
     if (ts_event->status_id == SEC_TS_READY_STATUS) {
       ts_info("report ready status");
@@ -1427,18 +1425,26 @@ static void goodix_ts_report_status(struct goodix_ts_core *cd, struct goodix_ts_
     }
   } else if (ts_event->status_type == TYPE_STATUS_EVENT_VENDOR_INFO) {
     if (ts_event->status_id == STATUS_EVENT_VENDOR_PROXIMITY) {
-      // Normalize
-      prox_raw = ts_event->status_data[0] ? 1 : 0;
-      prox_report = (!prox_raw) * 5;
+      cd->ts_event.hover_event = ts_event->status_data[0];
 
-      if (ktime_ms_delta(ktime_get(), cd->prox_resume_time) < 200)
+      if (ts_event->status_data[0] == 5)
+        ts_event->status_data[0] = 1;
+      else
+        ts_event->status_data[0] = !ts_event->status_data[0];
+
+      /* Debounce first far event after LPM entry */
+      if (ktime_ms_delta(ktime_get(), cd->prox_resume_time) < 200 &&
+          ts_event->status_data[0] == 1 &&
+          cd->prox_last_report == 0xFF)
         return;
 
-      cd->ts_event.hover_event = prox_report;
-
-      if (cd->prox_last_report != prox_report) {
-        cd->prox_last_report = prox_report;
-        sec_input_proximity_report(cd->bus->dev, prox_report);
+      if (atomic_read(&cd->plat_data->power_state) == SEC_INPUT_STATE_LPM ||
+          !cd->plat_data->touch_count ||
+          (cd->plat_data->support_ear_detect && cd->plat_data->ed_enable)) {
+        if (cd->prox_last_report != ts_event->status_data[0]) {
+          cd->prox_last_report = ts_event->status_data[0];
+          sec_input_proximity_report(cd->bus->dev, ts_event->status_data[0]);
+        }
       }
     } else if (ts_event->status_id == STATUS_EVENT_VENDOR_STATE_CHANGED) {
       if (ts_event->status_data[0] == 2 && ts_event->status_data[1] == 2) {

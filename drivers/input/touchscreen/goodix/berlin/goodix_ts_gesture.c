@@ -312,22 +312,20 @@ static int gsx_gesture_before_suspend(struct goodix_ts_core *cd,
 
 	goodix_set_custom_library(cd);
 
-	if (cd->plat_data->ed_enable) {
-		cd->prox_last_report = 0xFF;
+	cd->prox_last_report = 0xFF;
+	if (cd->plat_data->ed_enable)
 		sec_input_proximity_report(cd->bus->dev, 5);
-	}
 
 	ret = gsx_set_lowpowermode(cd, TO_LOWPOWER_MODE);
 	if (ret < 0)
 		ts_err("failed to enter lowpowermode");
 
-	if (cd->plat_data->ed_enable) {
-		ret = hw_ops->ed_enable(cd, 1);
-		if (ret < 0)
-			ts_err("failed to re-enable proximity in lowpowermode");
-	}
+	ret = hw_ops->ed_enable(cd, cd->plat_data->ed_enable ? cd->plat_data->ed_enable : 3);
+	if (ret < 0)
+		ts_err("failed to re-enable proximity in lowpowermode");
 
 	cd->lpm_coord_event_cnt = 0;
+	cd->prox_resume_time = ktime_get();
 	hw_ops->irq_enable(cd, true);
 	enable_irq_wake(cd->irq);
 
