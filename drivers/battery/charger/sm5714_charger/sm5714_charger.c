@@ -150,7 +150,7 @@ static u8 chg_get_auto_shipmode_data(int voltage, int offset)
 
 static void chg_set_auto_shipmode_level(struct sm5714_charger_data *charger)
 {
-	union power_supply_propval value;
+	union power_supply_propval value = {0};
 	int voltage = 2600;
 	u8 reg_data;
 	int offset = 0;
@@ -908,7 +908,7 @@ static void autodown_vbatreg_work(struct work_struct *work)
 {
 	struct sm5714_charger_data *charger =
 		container_of(work, struct sm5714_charger_data, vbatreg_autodown_work.work);
-	union power_supply_propval value;
+	union power_supply_propval value = {0};
 	int aub_voltage = 0, set_voltage = 0;
 
 	if ((charger->cable_type != SEC_BATTERY_CABLE_PDIC_APDO) ||
@@ -1282,7 +1282,7 @@ static inline int _reduce_input_limit_current(struct sm5714_charger_data *charge
 
 static inline void _check_slow_rate_charging(struct sm5714_charger_data *charger)
 {
-	union power_supply_propval value;
+	union power_supply_propval value = {0};
 
 	if (charger->input_current <= SLOW_CHARGING_CURRENT_STANDARD &&
 			charger->cable_type != SEC_BATTERY_CABLE_NONE) {
@@ -1330,7 +1330,7 @@ static void aicl_work(struct work_struct *work)
 
 	dev_info(charger->dev, "%s - aicl_on(%d)\n", __func__, aicl_on);
 	if (aicl_on) {
-		union power_supply_propval value;
+		union power_supply_propval value = {0};
 
 		value.intval = input_limit;
 		psy_do_property("battery", set,

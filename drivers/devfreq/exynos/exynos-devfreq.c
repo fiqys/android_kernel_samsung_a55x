@@ -1328,7 +1328,7 @@ static int exynos_devfreq_parse_dt(struct device_node *np, struct exynos_devfreq
 {
 	const char *use_acpm, *bts_update;
 	const char *devfreq_domain_name;
-	const char *buf;
+	const char *buf = NULL;
 	const char *pd_name;
 	const char *update_fvp;
 	const char *use_dtm;

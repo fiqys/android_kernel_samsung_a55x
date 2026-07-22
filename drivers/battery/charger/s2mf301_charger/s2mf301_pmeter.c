@@ -1057,7 +1057,7 @@ static irqreturn_t s2mf301_vchgin_isr(int irq, void *data)
 {
 	struct s2mf301_pmeter_data *pmeter = data;
 	int voltage;
-	union power_supply_propval value;
+	union power_supply_propval value = {0};
 
 	voltage = s2mf301_pm_get_value(pmeter, S2MF301_PM_TYPE_VCHGIN);
 
@@ -1071,7 +1071,7 @@ static irqreturn_t s2mf301_vchgin_isr(int irq, void *data)
 
 static irqreturn_t s2mf301_ichgin_th_isr(int irq, void *data)
 {
-	union power_supply_propval value;
+	union power_supply_propval value = {0};
 
 	pr_info("%s\n", __func__);
 	psy_do_property("s2mf301-charger", set,
