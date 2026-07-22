@@ -1,0 +1,42 @@
+name: Build Kernel
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - WIP
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Setup environment and clone build repository
+        run: |
+          git clone https://github.com/fiqys/build-kernel.git .
+
+      - name: Checkout kernel source
+        uses: actions/checkout@v6
+        with:
+          path: 'out/kernel'
+
+      - name: Free disk space
+        uses: rokibhasansagar/slimhub_actions@main
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          DEBIAN_FRONTEND=noninteractive sudo apt install -yq \
+              bc bison flex cpio kmod rsync ccache brotli zip zstd tar lz4 xz-utils \
+              libelf-dev libssl-dev dwarves python3 clang lld llvm \
+              binutils binutils-aarch64-linux-gnu git make gh
+          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+
+      - name: Compile Kernel
+        run: |
+          source env.sh
+          ./scripts/build.sh -u a55x
