@@ -236,8 +236,15 @@ static bool __init obsolete_checksetup(char *line)
 				pr_warn("Parameter %s is obsolete, ignored\n",
 					p->str);
 				return true;
-			} else if (p->setup_func(line + n))
-				return true;
+			} else {
+				int ret;
+
+				memblock_memsize_set_name(p->str);
+				ret = p->setup_func(line + n);
+				memblock_memsize_unset_name();
+				if (ret)
+					return true;
+			}
 		}
 		p++;
 	} while (p < __setup_end);
@@ -775,8 +782,10 @@ static int __init do_early_param(char *param, char *val,
 		    (strcmp(param, "console") == 0 &&
 		     strcmp(p->str, "earlycon") == 0)
 		) {
+			memblock_memsize_set_name(p->str);
 			if (p->setup_func(val) != 0)
 				pr_warn("Malformed early option '%s'\n", param);
+			memblock_memsize_unset_name();
 		}
 	}
 	/* We accept everything at this stage. */
@@ -786,6 +795,7 @@ static int __init do_early_param(char *param, char *val,
 			__is_kdp_recovery = 1;
 	}
 #endif
+
 	return 0;
 }
 
@@ -1039,11 +1049,12 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 #ifdef CONFIG_RKP
 	rkp_init();
 #endif
+
 	ftrace_init();
 
 	/* trace_printk can be enabled here */
 	early_trace_init();
-
+	
 #ifdef CONFIG_KDP
 	// move to after, early_trace_init. cuz security_integrity_current failed
 	kdp_enable = true;
