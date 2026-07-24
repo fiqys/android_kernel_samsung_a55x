@@ -122,3 +122,4 @@ struct s2mpu15 {
 };
 
 #endif /* __S2MPU15_MFD_H__ */
+

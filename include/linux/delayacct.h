@@ -300,12 +300,10 @@ static inline __u64 delayacct_blkio_ticks(struct task_struct *tsk)
 
 	return ret;
 }
-
 #ifdef CONFIG_PAGE_BOOST
 static inline __u64 delayacct_blkio_nsecs(struct task_struct *tsk)
 { return 0; }
 #endif
-
 static inline int delayacct_is_task_waiting_on_io(struct task_struct *p)
 { return 0; }
 

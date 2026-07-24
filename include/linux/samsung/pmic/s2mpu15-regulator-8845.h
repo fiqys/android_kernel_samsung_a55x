@@ -737,7 +737,6 @@ extern int main_pmic_mem_sel_status(void);
 extern int main_pmic_read_reg(struct i2c_client *i2c, uint8_t reg, uint8_t *val);
 extern int main_pmic_update_reg(struct i2c_client *i2c, u8 reg, u8 val, u8 mask);
 extern int main_pmic_get_i2c(struct i2c_client **i2c);
-
 #if IS_ENABLED(CONFIG_MFD_S2MPU16_8845)
 extern void s2mpu16_call_notifier(void);
 #endif
