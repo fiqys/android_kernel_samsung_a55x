@@ -428,7 +428,7 @@ compound_page_dtor * const compound_page_dtors[NR_COMPOUND_DTORS] = {
 
 int min_free_kbytes = 1024;
 int user_min_free_kbytes = -1;
-int watermark_boost_factor __read_mostly;
+int watermark_boost_factor __read_mostly = 15000;
 int watermark_scale_factor = 10;
 
 static unsigned long nr_kernel_pages __initdata;
@@ -5049,7 +5049,7 @@ retry:
 		unreserve_highatomic_pageblock(ac, false);
 		trace_android_vh_drain_all_pages_bypass(gfp_mask, order,
 			alloc_flags, ac->migratetype, *did_some_progress, &skip_pcp_drain);
-		if (!skip_pcp_drain || !need_memory_boosting())
+		if (!skip_pcp_drain && !need_memory_boosting())
 			drain_all_pages(NULL);
 		drained = true;
 		++retry_times;
@@ -5426,7 +5426,7 @@ restart:
 	}
 
 retry:
-
+	retry_loop_count++;
 	/*
 	 * Deal with possible cpuset update races or zonelist updates to avoid
 	 * infinite retries.
@@ -5434,8 +5434,6 @@ retry:
 	if (check_retry_cpuset(cpuset_mems_cookie, ac) ||
 	    check_retry_zonelist(zonelist_iter_cookie))
 		goto restart;
-
-	retry_loop_count++;
 
 	/* Ensure kswapd doesn't accidentally go to sleep as long as we loop */
 	if (alloc_flags & ALLOC_KSWAPD)
