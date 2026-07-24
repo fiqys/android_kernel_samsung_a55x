@@ -2306,6 +2306,7 @@ int vprintk_store(int facility, int level,
 	r.info->flags = flags & 0x1f;
 	r.info->ts_nsec = ts_nsec;
 	r.info->caller_id = caller_id;
+	trace_android_vh_vprintk_store(r.info->ts_nsec, r.text_buf, r.info->text_len);
 #ifdef CONFIG_PRINTK_PROCESS
 	strncpy(r.info->process, current->comm, sizeof(r.info->process) - 1);
 	r.info->process[sizeof(r.info->process) - 1] = '\0';
@@ -2313,7 +2314,6 @@ int vprintk_store(int facility, int level,
 	r.info->cpu = smp_processor_id();
 	r.info->in_interrupt = in_interrupt() ? 1 : 0;
 #endif
-	trace_android_vh_vprintk_store(r.info->ts_nsec, r.text_buf, r.info->text_len);
 	if (dev_info)
 		memcpy(&r.info->dev_info, dev_info, sizeof(r.info->dev_info));
 
