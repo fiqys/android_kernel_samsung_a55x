@@ -610,3 +610,4 @@ module_exit(exynos_tzasc_exit);
 MODULE_DESCRIPTION("Exynos TrustZone Address Controller(TZASC) driver");
 MODULE_AUTHOR("<junhosj.choi@samsung.com>");
 MODULE_LICENSE("GPL");
+

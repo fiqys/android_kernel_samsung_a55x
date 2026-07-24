@@ -339,6 +339,60 @@ static void ufs_sec_reset_device(struct ufs_hba *hba)
 		host->skip_flush = false;
 }
 
+static void ufs_sec_scsi_sanitize_inquiry_string(unsigned char *s, int len)
+{
+	int terminated = 0;
+
+	for (; len > 0; (--len, ++s)) {
+		if (*s == 0)
+			terminated = 1;
+		if (terminated || *s < 0x20 || *s > 0x7e)
+			*s = ' ';
+	}
+}
+
+static int ufs_sec_update_rev_info_inquiry(struct ufs_hba *hba)
+{
+	struct scsi_device *sdp;
+	const unsigned char cdb[6] = { INQUIRY, 0, 0, 0, 36, 0 };
+	int retries;
+	int ret = 0;
+	int resid;
+	unsigned char inq_result[36] = { 0, };
+	struct scsi_sense_hdr sshdr;
+	const struct scsi_exec_args args = {
+		.sshdr = &sshdr,
+		.resid = &resid,
+	};
+
+	ufshcd_hold(hba, false);
+
+	__shost_for_each_device(sdp, hba->host) {
+		memset(inq_result, 0, sdp->inquiry_len);
+
+		for (retries = 3; retries > 0; --retries) {
+			ret = scsi_execute_cmd(sdp, cdb, REQ_OP_DRV_IN,
+					inq_result,
+					sdp->inquiry_len, 10 * HZ, 3, &args);
+			if (ret == 0)
+				break;
+		}
+
+		if (ret < 0)
+			break;
+
+		ufs_sec_scsi_sanitize_inquiry_string(&inq_result[8], 8);
+		ufs_sec_scsi_sanitize_inquiry_string(&inq_result[16], 16);
+		ufs_sec_scsi_sanitize_inquiry_string(&inq_result[32], 4);
+
+		memcpy(sdp->inquiry, inq_result, sdp->inquiry_len);
+	}
+
+	ufshcd_release(hba);
+
+	return ret;
+}
+
 static ssize_t ufs_sec_post_ffu_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t count)
 {
@@ -402,6 +456,9 @@ static ssize_t ufs_sec_post_ffu_store(struct device *dev,
 		scsi_device_resume(sdp);
 
 	scsi_device_put(sdp_wlu);
+
+	if (ufs_sec_update_rev_info_inquiry(hba))
+		dev_err(dev, "update inquiry data failed.\n");
 
 	ufshcd_rpm_put(hba);
 

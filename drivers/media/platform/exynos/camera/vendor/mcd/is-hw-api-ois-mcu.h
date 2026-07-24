@@ -14,6 +14,7 @@
 
 #include "pablo-hw-api-common.h"
 #include "is-vendor-ois-internal-mcu.h"
+#include "is-vendor-ois-core.h"
 
 enum {
 	PMU_POWER_STATE_RESET = 0x00,
@@ -30,25 +31,32 @@ enum mcu_event_type {
 };
 
 /*
+ * Register access functions
+ */
+u8 is_mcu_get_reg_u8(void __iomem *base, int cmd);
+void is_mcu_set_reg_u8(void __iomem *base, int cmd, u8 val);
+void is_mcu_hw_set_field(void __iomem *base, int cmd, int field, u32 val);
+
+/*
  * Configuation functions
  */
 int __is_mcu_pmu_control(int on);
-int __is_mcu_hw_enable(enum ois_mcu_base_reg_index base);
-int __is_mcu_hw_disable(enum ois_mcu_base_reg_index base);
-int __is_mcu_core_control(enum ois_mcu_base_reg_index base, int on);
+int __is_mcu_hw_enable(void __iomem *base);
+int __is_mcu_hw_disable(void __iomem *base);
+int __is_mcu_core_control(void __iomem *base, int on);
 long __is_mcu_load_fw(void __iomem *base, struct device *dev);
 unsigned int __is_mcu_get_sram_size(void);
-int __is_mcu_hw_reset_peri(enum ois_mcu_base_reg_index base, int onoff);
-int __is_mcu_hw_set_clock_peri(enum ois_mcu_base_reg_index base);
-int __is_mcu_hw_set_init_peri(enum ois_mcu_base_reg_index base);
-int __is_mcu_hw_set_clear_peri(enum ois_mcu_base_reg_index base);
-int __is_mcu_hw_clear_peri(enum ois_mcu_base_reg_index base);
+int __is_mcu_hw_reset_peri(void __iomem *base, int onoff);
+int __is_mcu_hw_set_clock_peri(void __iomem *base);
+int __is_mcu_hw_set_init_peri(void __iomem *base);
+int __is_mcu_hw_set_clear_peri(void __iomem *base);
+int __is_mcu_hw_clear_peri(void __iomem *base);
 
 /*
  * interrupt functions
  */
-unsigned int is_mcu_hw_g_irq_state(enum ois_mcu_base_reg_index base, bool clear);
-void __is_mcu_hw_s_irq_enable(enum ois_mcu_base_reg_index base, u32 intr_enable);
+unsigned int is_mcu_hw_g_irq_state(void __iomem *base, bool clear);
+void __is_mcu_hw_s_irq_enable(void __iomem *base, u32 intr_enable);
 unsigned int is_mcu_hw_g_irq_type(unsigned int state, enum mcu_event_type type);
 
 /*
@@ -58,9 +66,5 @@ int __is_mcu_hw_sram_dump(void __iomem *base, unsigned int range);
 int __is_mcu_hw_cr_dump(void __iomem *base);
 int __is_mcu_hw_peri1_dump(void __iomem *base);
 int __is_mcu_hw_peri2_dump(void __iomem *base);
-
-/*
- * control function
- */
-void is_mcu_hw_set_field(enum ois_mcu_base_reg_index base, int cmd, int field, u32 val);
+void __is_mcu_hw_show_peri_status(void __iomem *base);
 #endif

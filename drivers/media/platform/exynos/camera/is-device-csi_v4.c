@@ -51,7 +51,9 @@
 #define WDMA_MAX(csi) ((csi->sensor_cfg) ? csi->sensor_cfg->dma_num : CSIS_MAX_NUM_DMA_ATTACH)
 
 #define DBG_IRQ_INFO_MAX 20
-
+#ifdef IGNORE_FIRST_CSIS_ERR
+static u32 first_fcount = 0;
+#endif
 static int csi_s_fro(struct is_device_csi *csi,
 		struct is_device_sensor *device,
 		int otf_ch)
@@ -1449,6 +1451,14 @@ static void csi_err_check(struct is_device_csi *csi, ulong *err_id)
 
 			csi_err_iommu_perf(IS_EVENT_CSI_LINK_ERR, csi->instance, fcount);
 			break;
+		case CSIS_ERR_SOT_VC:
+		case CSIS_ERR_SOT_SYNC_HS:
+		case CSIS_ERR_SKEW:
+		case CSIS_ERR_VRESOL_MISMATCH:
+			sensor = v4l2_get_subdev_hostdata(*csi->subdev);
+			if (sensor)
+				is_sensor_dump(sensor);
+			break;
 		case CSIS_ERR_OVERFLOW_VC:
 		case CSIS_ERR_DESKEW_OVER:
 			mcerr("[F%d] CSIS_ERR_OVER_XXX (ID %d)", csi, fcount, err);
@@ -1550,6 +1560,10 @@ static void csi_err_print(struct is_device_csi *csi)
 				break;
 			case CSIS_ERR_VRESOL_MISMATCH:
 				err_str = GET_STR(CSIS_ERR_VRESOL_MISMATCH);
+#ifdef TRIGGER_SNR_FASTLY_ON_VRESOL_MISMATCH_ERROR
+				if (device->position == 1)
+					csi->error_count += 9;
+#endif
 				break;
 			case CSIS_ERR_HRESOL_MISMATCH:
 				err_str = GET_STR(CSIS_ERR_HRESOL_MISMATCH);
@@ -1566,8 +1580,22 @@ static void csi_err_print(struct is_device_csi *csi)
 #ifdef CONFIG_CAMERA_VENDOR_MCD
 			if (err >= CSIS_ERR_ID && err < CSIS_ERR_END)
 				err_report = true;
+#ifdef IGNORE_FIRST_CSIS_ERR
+			/* Ignore csi error for 1st & 2nd frames */
+			if (fcount <= (first_fcount + 2)) {
+				if (err == CSIS_ERR_SKEW || err == CSIS_ERR_SOT_SYNC_HS || err == CSIS_ERR_SOT_VC) {
+					err_report = false;
+					err("Ignore 1st & 2nd mipi error (%s) !!", err_str);
+				}
+			}
 #endif
-
+#endif /* CONFIG_CAMERA_VENDOR_MCD */
+#ifdef DO_RECOVERY_FOR_SOME_CSIS_ERRORS
+			if (device->position == 1 &&
+				(err == CSIS_ERR_SOT_VC || err == CSIS_ERR_SKEW || err == CSIS_ERR_SOT_SYNC_HS)) {
+				set_bit(IS_SENSOR_ERR_RECOVERY, &device->state);
+			}
+#endif
 			/* Check next bit */
 			err = find_next_bit((unsigned long *)&csi->error_id[link_vc], CSIS_ERR_END,
 				err + 1);
@@ -1807,6 +1835,16 @@ static void csi_err_handle(struct is_device_csi *csi)
 
 		/* Call sensor SNR */
 		set_bit(IS_SENSOR_FRONT_SNR_STOP, &device->state);
+		set_bit(IS_SENSOR_ERR_RECOVERY, &device->state);
+		err("[F%d] IS_SENSOR_ERR_RECOVERY set", atomic_read(&csi->fcount));
+
+		/* CSIS register dump */
+		err("dump all before clear, err_cnt %d", csi->error_count);
+		if ((csi->error_count == CSI_ERR_COUNT) || (csi->error_count % 20 == 0)) {
+			csi_hw_dump_all(csi);
+			/* CLK dump */
+			schedule_work(&core->wq_data_print_clk);
+		}
 
 		/* Disable CSIS */
 		csi_hw_disable(csi->base_reg);
@@ -1823,13 +1861,16 @@ static void csi_err_handle(struct is_device_csi *csi)
 
 		csi_hw_s_irq_msk(csi->base_reg, false, csi->f_id_dec);
 
-		/* CSIS register dump */
-		if ((csi->error_count == CSI_ERR_COUNT) || (csi->error_count % 20 == 0)) {
+	}
+#ifdef DO_SFR_DUMP_WHEN_CSIS_ERR_OCCURS
+	else if (csi->error_count > 0) {
+		if (device->device_id == 1 && test_bit(IS_SENSOR_ERR_RECOVERY, &device->state)) {
 			csi_hw_dump_all(csi);
 			/* CLK dump */
 			schedule_work(&core->wq_data_print_clk);
 		}
 	}
+#endif
 }
 
 static void link_dump(struct work_struct *data)
@@ -3043,7 +3084,9 @@ static int csi_stream_on(struct v4l2_subdev *subdev,
 	csi->state_cnt.str = 0;
 	csi->state_cnt.end = 0;
 	csi->sw_checker = EXPECT_FRAME_START;
-
+#ifdef IGNORE_FIRST_CSIS_ERR
+	first_fcount = atomic_read(&csi->fcount);
+#endif
 	sensor_cfg = csi->sensor_cfg;
 	if (!sensor_cfg) {
 		mcerr(" sensor cfg is null", csi);

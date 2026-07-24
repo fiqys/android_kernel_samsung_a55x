@@ -81,7 +81,18 @@ u32 sensor_gc08a3_cis_calc_gain_permile(u32 code)
 	return ((code * 1000 / 1024));
 }
 
-/* CIS OPS */
+int sensor_gc08a3_cis_init_state(struct v4l2_subdev *subdev, int mode)
+{
+	struct is_cis *cis = sensor_cis_get_cis(subdev);
+
+	cis->cis_data->stream_on = false;
+	cis->mipi_clock_index_cur = CAM_MIPI_NOT_INITIALIZED;
+	cis->mipi_clock_index_new = CAM_MIPI_NOT_INITIALIZED;
+	cis->cis_data->cur_pattern_mode = SENSOR_TEST_PATTERN_MODE_OFF;
+
+	return 0;
+}
+
 int sensor_gc08a3_cis_init(struct v4l2_subdev *subdev)
 {
 	int ret = 0;
@@ -109,7 +120,7 @@ int sensor_gc08a3_cis_init(struct v4l2_subdev *subdev)
 
 static const struct is_cis_log log_gc08a3[] = {
 	{I2C_READ, 16, 0x0000, 0, "model_id"},
-	{I2C_READ, 8, 0x0002, 0, "rev_number"},
+	{I2C_READ, 16, 0x03f0, 0, "rev_number"},
 	{I2C_READ, 16, GC08A3_ADDR_FRAME_COUNT, 0, "frame_count"},
 	{I2C_READ, 8, 0x0100, 0, "mode_select"},
 	{I2C_READ, 16, 0x0136, 0, ""},
@@ -129,6 +140,34 @@ int sensor_gc08a3_cis_log_status(struct v4l2_subdev *subdev)
 	struct is_cis *cis = sensor_cis_get_cis(subdev);
 
 	sensor_cis_log_status(cis, log_gc08a3, ARRAY_SIZE(log_gc08a3), (char *)__func__);
+
+	return ret;
+}
+
+int sensor_gc08a3_cis_check_rev_on_init(struct v4l2_subdev *subdev)
+{
+	int ret = 0;
+	struct is_cis *cis = sensor_cis_get_cis(subdev);
+	u16 rev16 = 0;
+
+	memset(cis->cis_data, 0, sizeof(cis_shared_data));
+
+	IXC_MUTEX_LOCK(cis->ixc_lock);
+	ret = cis->ixc_ops->read16(cis->client, 0x03f0, &rev16);
+	cis->cis_data->cis_rev = rev16;
+	IXC_MUTEX_UNLOCK(cis->ixc_lock);
+
+	if (ret < 0) {
+		err("is_sensor_read failed");
+		ret = -EAGAIN;
+	} else {
+		info("%s : [%d] Sensor version. Rev(addr:0x%X). 0x%X\n", __func__,
+			 cis->id, cis->rev_addr, cis->cis_data->cis_rev);
+
+		if (cis->sensor_info && cis->sensor_info->version)
+			info("%s : [%s][%d][SEN_DBG] Version : %s\n", __func__,
+				cis->sensor_info->name, cis->id, cis->sensor_info->version);
+	}
 
 	return ret;
 }
@@ -173,6 +212,7 @@ int sensor_gc08a3_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 		return ret;
 	}
 
+	cis->cis_data->seamless_mode_cnt = 0;
 	cis->cis_data->sens_config_index_pre = mode;
 
 	info("[%s] mode changed(%d)\n", __func__, mode);
@@ -228,11 +268,7 @@ int sensor_gc08a3_cis_stream_on(struct v4l2_subdev *subdev)
 
 	/* first frame should be delayed */
 	/* To resolve blinking issue */
-	if ((cis->cis_data->sens_config_index_cur == SENSOR_GC08A3_1632X1224_60FPS)
-		|| (cis_data->is_data.scene_mode == AA_SCENE_MODE_PANORAMA)
-		|| (cis_data->is_data.scene_mode == AA_SCENE_MODE_SUPER_NIGHT)
-		|| IS_VIDEO_SCENARIO(device->ischain->setfile & IS_SETFILE_MASK))
-		msleep(30);
+	msleep(30);
 
 	IXC_MUTEX_LOCK(cis->ixc_lock);
 	/* Sensor stream on */
@@ -487,8 +523,46 @@ exit:
 	return ret;
 }
 
+int sensor_gc08a3_cis_set_test_pattern(struct v4l2_subdev *subdev, struct camera2_sensor_ctl *sensor_ctl)
+{
+	int ret = 0;
+	struct is_cis *cis = sensor_cis_get_cis(subdev);
+
+	dbg_sensor(1, "[MOD:D:%d] %s, cur_pattern_mode(%d), testPatternMode(%d)\n", cis->id, __func__,
+		cis->cis_data->cur_pattern_mode, sensor_ctl->testPatternMode);
+
+	if (cis->cis_data->cur_pattern_mode != sensor_ctl->testPatternMode) {
+		if (sensor_ctl->testPatternMode == SENSOR_TEST_PATTERN_MODE_OFF) {
+			info("[%d][%s] set DEFAULT pattern! (mode : %d)\n", cis->id, __func__, sensor_ctl->testPatternMode);
+
+			IXC_MUTEX_LOCK(cis->ixc_lock);
+			cis->ixc_ops->write8(cis->client, 0x008c, 0x00);
+			cis->ixc_ops->write8(cis->client, 0x008d, 0x10);
+			IXC_MUTEX_UNLOCK(cis->ixc_lock);
+
+			cis->cis_data->cur_pattern_mode = sensor_ctl->testPatternMode;
+		} else if (sensor_ctl->testPatternMode == SENSOR_TEST_PATTERN_MODE_BLACK) {
+			info("[%d][%s] set BLACK pattern! (mode :%d), Data : 0x(%x, %x, %x, %x)\n",
+				cis->id, __func__, sensor_ctl->testPatternMode,
+				(unsigned short)sensor_ctl->testPatternData[0],
+				(unsigned short)sensor_ctl->testPatternData[1],
+				(unsigned short)sensor_ctl->testPatternData[2],
+				(unsigned short)sensor_ctl->testPatternData[3]);
+
+			IXC_MUTEX_LOCK(cis->ixc_lock);
+			cis->ixc_ops->write8(cis->client, 0x008c, 0x01);
+			cis->ixc_ops->write8(cis->client, 0x008d, 0x00);
+			IXC_MUTEX_UNLOCK(cis->ixc_lock);
+
+			cis->cis_data->cur_pattern_mode = sensor_ctl->testPatternMode;
+		}
+	}
+	return ret;
+}
+
 static struct is_cis_ops cis_ops = {
 	.cis_init = sensor_gc08a3_cis_init,
+	.cis_init_state = sensor_gc08a3_cis_init_state,
 	.cis_log_status = sensor_gc08a3_cis_log_status,
 	.cis_set_global_setting = sensor_gc08a3_cis_set_global_setting,
 	.cis_mode_change = sensor_gc08a3_cis_mode_change,
@@ -521,8 +595,9 @@ static struct is_cis_ops cis_ops = {
 #ifdef USE_CAMERA_RECOVER_GC08A3
 	.cis_recover_stream_on = sensor_gc08a3_cis_recover_stream_on,
 #endif
-	.cis_check_rev_on_init = sensor_cis_check_rev_on_init,
+	.cis_check_rev_on_init = sensor_gc08a3_cis_check_rev_on_init,
 	.cis_get_otprom_data = sensor_gc08a3_cis_get_otprom_data,
+	.cis_set_test_pattern = sensor_gc08a3_cis_set_test_pattern,
 };
 
 int cis_gc08a3_probe(struct i2c_client *client,

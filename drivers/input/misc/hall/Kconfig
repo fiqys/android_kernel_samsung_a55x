@@ -24,3 +24,4 @@ config HALL_DUMP_KEY_MODE
 	default n
 	help
 	  Enable hall dump key
+

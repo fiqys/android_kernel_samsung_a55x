@@ -751,8 +751,7 @@ static u32 dw_mci_prep_stop_abort(struct dw_mci *host, struct mmc_command *cmd)
 	    cmdr == MMC_READ_MULTIPLE_BLOCK ||
 	    cmdr == MMC_WRITE_BLOCK ||
 	    cmdr == MMC_WRITE_MULTIPLE_BLOCK ||
-	    mmc_op_tuning(cmdr) ||
-	    cmdr == MMC_GEN_CMD) {
+	    cmdr == MMC_SEND_TUNING_BLOCK || cmdr == MMC_SEND_TUNING_BLOCK_HS200) {
 		stop->opcode = MMC_STOP_TRANSMISSION;
 		stop->arg = 0;
 		stop->flags = MMC_RSP_R1B | MMC_CMD_AC;
@@ -1818,8 +1817,9 @@ static void __dw_mci_start_request(struct dw_mci *host,
 
 	mrq = slot->mrq;
 
-	if (mmc_op_tuning(mrq->cmd->opcode) ||
-	    mrq->cmd->opcode == SD_APP_SEND_SCR)
+	if (mrq->cmd->opcode == MMC_SEND_TUNING_BLOCK ||
+	    mrq->cmd->opcode == MMC_SEND_TUNING_BLOCK_HS200 ||
+		mrq->cmd->opcode == SD_APP_SEND_SCR)
 		mod_timer(&host->sto_timer, jiffies + msecs_to_jiffies(500));
 	else if (host->pdata->sw_timeout)
 		mod_timer(&host->sto_timer, jiffies + msecs_to_jiffies(host->pdata->sw_timeout));
@@ -2707,7 +2707,7 @@ static void dw_mci_tasklet_func(unsigned long priv)
 				 * avoids races and keeps things simple.
 				 */
 				if ((err != -ETIMEDOUT) &&
-					mmc_op_tuning(cmd->opcode)) {
+						(cmd->opcode == MMC_SEND_TUNING_BLOCK)) {
 					state = STATE_SENDING_DATA;
 					continue;
 				}
@@ -3579,7 +3579,8 @@ static void dw_mci_timeout_timer(struct timer_list *t)
 		host->sw_timeout_chk = true;
 		mrq = host->mrq;
 
-		if (!mmc_op_tuning(mrq->cmd->opcode)) {
+		if (!(mrq->cmd->opcode == MMC_SEND_TUNING_BLOCK ||
+		      mrq->cmd->opcode == MMC_SEND_TUNING_BLOCK_HS200)) {
 			dev_err(host->dev,
 				"Timeout waiting for hardware interrupt."
 				" state = %d\n", host->state);

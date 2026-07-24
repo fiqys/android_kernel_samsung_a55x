@@ -283,7 +283,6 @@ static inline u32 __calc_imb_req_chunk_v1(struct npu_memory_buffer *IMB_mem_buf,
 
 	return req_chunk_cnt;
 }
-
 #ifndef MAX
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #endif
@@ -3536,6 +3535,11 @@ int npu_session_restore_cnt(struct npu_session *session)
 	struct npu_sessionmgr *sessionmgr;
 	struct npu_hw_device *hdev_npu = npu_get_hdev_by_id(NPU_HWDEV_ID_NPU);
 
+	if (!hdev_npu) {
+		npu_err("no hwdevice found\n");
+		ret = -EINVAL;
+		return ret;
+	}
 	mutex_lock(session->global_lock);
 
 	sessionmgr = session->cookie;
@@ -3591,6 +3595,12 @@ int npu_session_NW_CMD_SUSPEND(struct npu_session *session)
 
 	if (!session) {
 		npu_err("invalid session\n");
+		ret = -EINVAL;
+		return ret;
+	}
+
+	if (!hdev_npu || !hdev_dsp) {
+		npu_err("no hwdevice found\n");
 		ret = -EINVAL;
 		return ret;
 	}

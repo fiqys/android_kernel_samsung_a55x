@@ -217,7 +217,7 @@ void is_lib_camera_callback(void *this, enum lib_cb_event_type event_id,
 		frame = peek_frame(framemgr, FS_HW_WAIT_DONE);
 		framemgr_x_barrier_common(framemgr, 0, flags);
 
-		if (frame && frame->result) {
+		if (frame && frame->result && frame->result != IS_SHOT_CONFIG_LOCK_DELAY) {
 			if (frame_ndone(hw_ip, frame, frame->result, fcount))
 				mserr_hw("failure in hardware_frame_ndone", frame->instance, hw_ip);
 		} else {
@@ -416,8 +416,6 @@ int __nocfi is_lib_isp_chain_create(struct is_hw_ip *hw_ip,
 			err_lib("ext1 chain_create fail (%d)", hw_ip->id);
 			return -EINVAL;
 		}
-		msinfo_lib("ext1 chain_create done [reg_base:0x%lx][b_offset:0x%x]\n",
-				instance_id, hw_ip, base_addr, 0x0);
 	}
 
 	if (hw_ip->regs[REG_EXT2]) {
@@ -427,8 +425,6 @@ int __nocfi is_lib_isp_chain_create(struct is_hw_ip *hw_ip,
 			err_lib("ext2 chain_create fail (%d)", hw_ip->id);
 			return -EINVAL;
 		}
-		msinfo_lib("ext2 chain_create done [reg_base:0x%lx][b_offset:0x%x]\n",
-				instance_id, hw_ip, base_addr, 0x0);
 	}
 
 	if (hw_ip->regs[REG_EXT3]) {
@@ -438,8 +434,6 @@ int __nocfi is_lib_isp_chain_create(struct is_hw_ip *hw_ip,
 			err_lib("ext3 chain_create fail (%d)", hw_ip->id);
 			return -EINVAL;
 		}
-		msinfo_lib("ext3 chain_create done [reg_base:0x%lx][b_offset:0x%x]\n",
-				instance_id, hw_ip, base_addr, 0x0);
 	}
 
 	if (hw_ip->regs[REG_EXT4]) {
@@ -449,8 +443,6 @@ int __nocfi is_lib_isp_chain_create(struct is_hw_ip *hw_ip,
 			err_lib("ext4 chain_create fail (%d)", hw_ip->id);
 			return -EINVAL;
 		}
-		msinfo_lib("ext4 chain_create done [reg_base:0x%lx][b_offset:0x%x]\n",
-				instance_id, hw_ip, base_addr, 0x0);
 	}
 
 	base_addr    = (ulong)hw_ip->regs[REG_SETA];

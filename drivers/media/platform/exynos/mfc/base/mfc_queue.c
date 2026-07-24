@@ -731,10 +731,20 @@ int mfc_get_available_dpb_count(struct mfc_core_ctx *core_ctx)
 	}
 
 	if (ctx->plugin_type) {
+		used_flag_count = hweight64(dec->dynamic_used | dec->dpb_table_used);
+		if (used_flag_count >= dec->total_dpb_count) {
+			mfc_info("[PLUGIN][DPB] All DPB(%ld/%d) in use (ref: %#lx, filmgrain: %#lx)\n",
+					used_flag_count, dec->total_dpb_count,
+					dec->dynamic_used, dec->dpb_table_used);
+			spin_unlock_irqrestore(&ctx->buf_queue_lock, flags);
+			return 0;
+		}
+
 		list_for_each_entry(mfc_buf, &ctx->dst_buf_queue.head, list) {
 			if (!mfc_buf->used)
 				cnt++;
 		}
+
 		spin_unlock_irqrestore(&ctx->buf_queue_lock, flags);
 		return cnt;
 	}
@@ -1086,7 +1096,6 @@ void __mfc_store_plugin_dpb(struct mfc_ctx *ctx, struct mfc_dec *dec, struct vb2
 	unsigned long flags;
 
 	mfc_buf = vb_to_mfc_buf(vb);
-	mfc_buf->used = 0;
 
 	spin_lock_irqsave(&ctx->buf_queue_lock, flags);
 
@@ -1113,6 +1122,8 @@ void __mfc_store_plugin_dpb(struct mfc_ctx *ctx, struct mfc_dec *dec, struct vb2
 		return;
 	}
 
+	mfc_buf->used = 0;
+	mfc_buf->dpb_index = 0;
 	list_add_tail(&mfc_buf->list, &ctx->dst_buf_queue.head);
 	ctx->dst_buf_queue.count++;
 	set_bit(vb->index, &dec->queued_dpb);
@@ -1225,7 +1236,7 @@ void mfc_dec_drc_find_del_buf(struct mfc_core_ctx *core_ctx)
 	struct mfc_buf *dst_mb;
 	int i;
 
-	if (!dec || dec->disp_drc.disp_res_change)
+	if (!dec || dec->disp_drc.disp_res_change || dec->disp_drc.disp_crop_change)
 		return;
 
 	dst_mb = mfc_get_del_buf(ctx, &ctx->dst_buf_queue, MFC_BUF_NO_TOUCH_USED);

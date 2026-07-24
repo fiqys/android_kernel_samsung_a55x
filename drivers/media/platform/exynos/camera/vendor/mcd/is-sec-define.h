@@ -45,7 +45,6 @@
 #include "is-device-ischain.h"
 #include "crc32.h"
 #include "is-dt.h"
-#include "is-device-ois.h"
 #include "is-device-rom.h"
 
 struct dualize_match_entry {

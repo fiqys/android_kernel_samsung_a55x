@@ -2403,11 +2403,16 @@ static inline int ufshcd_hba_capabilities(struct ufs_hba *hba)
  */
 static inline bool ufshcd_ready_for_uic_cmd(struct ufs_hba *hba)
 {
-	u32 val;
-	int ret = read_poll_timeout(ufshcd_readl, val, val & UIC_COMMAND_READY,
-				    500, uic_cmd_timeout * 1000, false, hba,
-				    REG_CONTROLLER_STATUS);
-	return ret == 0 ? true : false;
+	u32 cnt = 1000;
+
+	while (cnt--) {
+		if (ufshcd_readl(hba, REG_CONTROLLER_STATUS) & UIC_COMMAND_READY)
+			return true;
+
+		udelay(500);
+	}
+
+	return false;
 }
 
 /**
@@ -3060,7 +3065,16 @@ static int ufshcd_compose_dev_cmd(struct ufs_hba *hba,
  */
 bool ufshcd_cmd_inflight(struct scsi_cmnd *cmd)
 {
-	return cmd && blk_mq_rq_state(scsi_cmd_to_rq(cmd)) == MQ_RQ_IN_FLIGHT;
+	struct request *rq;
+
+	if (!cmd)
+		return false;
+
+	rq = scsi_cmd_to_rq(cmd);
+	if (blk_mq_rq_state(rq) != MQ_RQ_IN_FLIGHT)
+		return false;
+
+	return true;
 }
 
 /*
@@ -5355,6 +5369,9 @@ ufshcd_scsi_cmd_status(struct ufshcd_lrb *lrbp, int scsi_status)
 	return result;
 }
 
+/* Extended Error Code */
+#define MASK_EEC	0xF0
+
 /**
  * ufshcd_transfer_rsp_status - Get overall status of the response
  * @hba: per adapter instance
@@ -5437,6 +5454,11 @@ ufshcd_transfer_rsp_status(struct ufs_hba *hba, struct ufshcd_lrb *lrbp,
 		}
 		break;
 	case OCS_ABORTED:
+		if (is_mcq_enabled(hba) && !(le32_to_cpu(cqe->status) & MASK_EEC))
+			result |= DID_REQUEUE << 16;
+		else
+			result |= DID_ABORT << 16;
+		break;
 	case OCS_INVALID_COMMAND_STATUS:
 		result |= DID_REQUEUE << 16;
 		dev_warn(hba->dev,
@@ -6872,6 +6894,13 @@ static irqreturn_t ufshcd_check_errors(struct ufs_hba *hba, u32 intr_status)
 			queue_eh_work = true;
 	}
 
+	trace_android_vh_ufs_check_int_errors(hba, queue_eh_work);
+
+	if (hba->errors & UTP_ERROR) {
+		queue_eh_work = true;
+		hba->force_reset = true;
+	}
+
 	if (hba->errors & UFSHCD_UIC_HIBERN8_MASK) {
 		dev_err(hba->dev,
 			"%s: Auto Hibern8 %s failed - status: 0x%08x, upmcrs: 0x%08x\n",
@@ -6883,8 +6912,6 @@ static irqreturn_t ufshcd_check_errors(struct ufs_hba *hba, u32 intr_status)
 		ufshcd_set_link_broken(hba);
 		queue_eh_work = true;
 	}
-	
-	trace_android_vh_ufs_check_int_errors(hba, queue_eh_work);
 
 	if (queue_eh_work) {
 		/*
@@ -7009,8 +7036,9 @@ static irqreturn_t ufshcd_sl_intr(struct ufs_hba *hba, u32 intr_status)
 	if (intr_status & UTP_TRANSFER_REQ_COMPL)
 		retval |= ufshcd_transfer_req_compl(hba);
 
-	if (intr_status & MCQ_CQ_EVENT_STATUS)
+	if (intr_status & MCQ_CQ_EVENT_STATUS) {
 		retval |= ufshcd_handle_mcq_cq_events(hba);
+	}
 
 	return retval;
 }
@@ -7655,6 +7683,13 @@ int ufshcd_try_to_abort_task(struct ufs_hba *hba, int tag)
 				__func__, tag, err);
 		}
 		goto out;
+	}
+
+	if (is_mcq_enabled(hba) && ufshcd_eh_in_progress(hba)) {
+		if (!ufshcd_cmd_inflight(lrbp->cmd))
+			dev_err(hba->dev, "%s: request is already complete. tag = %d, err %d\n",
+				__func__, tag, err);
+			goto out;
 	}
 
 	err = ufshcd_clear_cmd(hba, tag);

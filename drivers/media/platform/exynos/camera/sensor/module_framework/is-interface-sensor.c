@@ -2109,12 +2109,11 @@ int copy_sensor_ctl(struct is_sensor_interface *itf,
 
 		sensor_ctl->ctl_frame_number = shot->dm.request.frameCount;
 		sensor_ctl->cur_cam20_sensor_ctrl = shot->ctl.sensor;
-#if defined(CONFIG_OIS_USE)
+
 		if (sensor_peri->mcu && sensor_peri->mcu->ois) {
 			sensor_peri->mcu->ois->ois_mode = shot->ctl.lens.opticalStabilizationMode;
 			sensor_peri->mcu->ois->coef = (u8)shot->uctl.lensUd.oisCoefVal;
 		}
-#endif
 #ifdef CONFIG_CAMERA_VENDOR_MCD
 		if (sensor_peri->laser_af) {
 			sensor_peri->laser_af->rs_mode = shot->uctl.isModeUd.range_sensor_mode;

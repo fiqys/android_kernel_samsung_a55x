@@ -354,8 +354,10 @@ static int samsg_open(struct inode *ino, struct file *filp)
 #endif
 	ret = debugfile_open(ino, filp);
 #if IS_ENABLED(CONFIG_SCSC_MXLOGGER)
-	if (!ret && mx_cb_single && mx_cb_single->scsc_logring_register_observer)
-		mx_cb_single->scsc_logring_register_observer(mx_cb_single, "LOGRING");
+	if (!ret && mx_cb_single && mx_cb_single->scsc_logring_register_observer) {
+		mx_cb_single->scsc_logring_register_observer(mx_cb_single, "LOGRING", SCSC_SUBSYSTEM_WPAN);
+		mx_cb_single->scsc_logring_register_observer(mx_cb_single, "LOGRING", SCSC_SUBSYSTEM_WLAN);
+	}
 #endif
 	return ret;
 }
@@ -363,8 +365,10 @@ static int samsg_open(struct inode *ino, struct file *filp)
 static int samsg_release(struct inode *ino, struct file *filp)
 {
 #if IS_ENABLED(CONFIG_SCSC_MXLOGGER)
-	if (mx_cb_single && mx_cb_single->scsc_logring_unregister_observer)
-		mx_cb_single->scsc_logring_unregister_observer(mx_cb_single, "LOGRING");
+	if (mx_cb_single && mx_cb_single->scsc_logring_unregister_observer) {
+		mx_cb_single->scsc_logring_unregister_observer(mx_cb_single, "LOGRING", SCSC_SUBSYSTEM_WPAN);
+		mx_cb_single->scsc_logring_unregister_observer(mx_cb_single, "LOGRING", SCSC_SUBSYSTEM_WLAN);
+	}
 #endif
 
 	return debugfile_release(ino, filp);

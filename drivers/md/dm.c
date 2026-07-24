@@ -30,6 +30,7 @@
 #include <linux/part_stat.h>
 #include <linux/blk-crypto.h>
 #include <linux/blk-crypto-profile.h>
+#include <linux/dm-ioctl.h>
 
 #define DM_MSG_PREFIX "core"
 
@@ -450,6 +451,14 @@ static int dm_blk_ioctl(struct block_device *bdev, fmode_t mode,
 {
 	struct mapped_device *md = bdev->bd_disk->private_data;
 	int r, srcu_idx;
+
+	if (cmd == DM_BLK_SET_RELIABLE_WRITE) {
+		set_bit(DMF_RELIABLE_WRITE, &md->flags);
+		return 0;
+	} else if (cmd == DM_BLK_CLEAR_RELIABLE_WRITE) {
+		clear_bit(DMF_RELIABLE_WRITE, &md->flags);
+		return 0;
+	}
 
 	r = dm_prepare_ioctl(md, &srcu_idx, &bdev);
 	if (r < 0)

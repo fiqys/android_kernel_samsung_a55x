@@ -92,7 +92,7 @@ static int pablo_vendor_sysfs_kunit_test_init(struct kunit *test)
 {
 	int ret = 0;
 
-	sysfs_output_buf = vmalloc(PAGE_SIZE);
+	sysfs_output_buf = pablo_malloc(PAGE_SIZE, GFP_KERNEL);
 	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, sysfs_output_buf);
 
 	return ret;
@@ -101,7 +101,7 @@ static int pablo_vendor_sysfs_kunit_test_init(struct kunit *test)
 static void pablo_vendor_sysfs_kunit_test_exit(struct kunit *test)
 {
 	if (sysfs_output_buf) {
-		vfree(sysfs_output_buf);
+		pablo_free(sysfs_output_buf);
 		sysfs_output_buf = NULL;
 	}
 }

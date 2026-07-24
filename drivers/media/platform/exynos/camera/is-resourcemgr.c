@@ -553,10 +553,10 @@ int is_resourcemgr_probe(struct is_resourcemgr *resourcemgr,
 
 #ifdef ENABLE_KERNEL_LOG_DUMP
 #if IS_ENABLED(CONFIG_EXYNOS_SNAPSHOT)
-	resourcemgr->kernel_log_buf = kzalloc(exynos_ss_get_item_size("log_kernel"),
+	resourcemgr->kernel_log_buf = pablo_zalloc(exynos_ss_get_item_size("log_kernel"),
 						GFP_KERNEL);
 #elif IS_ENABLED(CONFIG_DEBUG_SNAPSHOT)
-	resourcemgr->kernel_log_buf = kzalloc(dbg_snapshot_get_item_size("log_kernel"),
+	resourcemgr->kernel_log_buf = pablo_zalloc(dbg_snapshot_get_item_size("log_kernel"),
 						GFP_KERNEL);
 #endif
 #endif
@@ -880,6 +880,14 @@ int is_resource_get(struct is_resourcemgr *resourcemgr, u32 rsc_type)
 		ret = -EMFILE;
 		goto rsc_err;
 	}
+
+#if IS_ENABLED(CONFIG_KG_DRV)
+	if (is_vendor_resource_is_locked()) {
+		err("[RSC] camera is locked by vendor module");
+		ret = -EINVAL;
+		goto rsc_err;
+	}
+#endif
 
 	if (rsccount >= (IS_STREAM_COUNT + IS_VIDEO_SS5_NUM)) {
 		err("[RSC] Invalid rsccount(%d)", rsccount);

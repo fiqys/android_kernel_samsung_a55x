@@ -17,8 +17,8 @@
 #define SLSI_INI_TRY_FALLBACK                1
 #define SET_LEAST_SIGNIFICANT_BYTE           -1
 
-#define INI_CONFIG_FILE_PATH            "../firmware/wlan-connection-roaming.ini"
-#define INI_CONFIG_FILE_BACKUP_PATH     "../firmware/wlan-connection-roaming-backup.ini"
+#define INI_CONFIG_FILE_PATH            "wlan-connection-roaming.ini"
+#define INI_CONFIG_FILE_BACKUP_PATH     "wlan-connection-roaming-backup.ini"
 
 struct ini_lookup {
 	const char *key;

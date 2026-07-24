@@ -509,7 +509,13 @@ static int __is_sensor_gpio_on(struct is_device_sensor *device)
 				device, ret);
 			goto p_err;
 		}
-
+#if defined(CONFIG_CAMERA_USE_INTERNAL_MCU)
+		if (module->sensor_id == SENSOR_NAME_IMX906 && scenario == GPIO_SCENARIO_ON && gpio_scenario == SENSOR_SCENARIO_NORMAL) {
+			info("mcu_power_on_work S\n");
+			is_vendor_mcu_power_on_flush_work();
+			info("mcu_power_on_work E\n");
+		}
+#endif
 		pdata = module->pdata;
 		if (!pdata) {
 			clear_bit(IS_MODULE_GPIO_ON, &module->state);
@@ -717,6 +723,10 @@ IS_TIMER_FUNC(is_sensor_snr)
 	if (device->force_stop) {
 		err("forcely reset due to 0x%08lx", device->force_stop);
 		device->force_stop = 0;
+	} else if (device->fcount) {
+		/* Sensor is working well. tasklet might be delayed */
+		warn("false alarm, do not need to check snr");
+		return;
 	} else {
 		err("SNR detected");
 

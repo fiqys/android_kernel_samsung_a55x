@@ -63,7 +63,7 @@ struct tzdev_iw_mem *tzdev_iw_mem_create(size_t size)
 	if (!mem)
 		return ERR_PTR(-ENOMEM);
 
-	pages = kmalloc_array(pages_count, sizeof(struct pages *), GFP_KERNEL);
+	pages = kvmalloc(pages_count * sizeof(struct page *), GFP_KERNEL);
 	if (!pages) {
 		ret = -ENOMEM;
 		goto free_mem;
@@ -105,7 +105,7 @@ free_pages:
 			__free_page(pages[i]);
 		}
 	}
-	kfree(pages);
+	kvfree(pages);
 free_mem:
 	kfree(mem);
 	return ERR_PTR(ret);
@@ -136,7 +136,7 @@ struct tzdev_iw_mem *tzdev_iw_mem_create_exist(void *ptr, size_t size)
 	if (!mem)
 		return ERR_PTR(-ENOMEM);
 
-	pages = kmalloc_array(pages_count, sizeof(struct pages *), GFP_KERNEL);
+	pages = kvmalloc(pages_count * sizeof(struct page *), GFP_KERNEL);
 	if (!pages) {
 		ret = -ENOMEM;
 		goto free_mem;
@@ -173,7 +173,7 @@ struct tzdev_iw_mem *tzdev_iw_mem_create_exist(void *ptr, size_t size)
 free_impl_data:
 	kfree(mem->impl_data);
 free_pages:
-	kfree(pages);
+	kvfree(pages);
 free_mem:
 	kfree(mem);
 	return ERR_PTR(ret);
@@ -210,7 +210,7 @@ void tzdev_iw_mem_destroy(struct tzdev_iw_mem *mem)
 	}
 
 	kfree(mem->impl_data);
-	kfree(mem->pages);
+	kvfree(mem->pages);
 	kfree(mem);
 }
 

@@ -128,7 +128,7 @@ int sensor_cis_write_registers(struct v4l2_subdev *subdev, const struct sensor_r
 				break;
 			}
 
-			burst_data = vmalloc(burst_num * 2);
+			burst_data = pablo_malloc(burst_num * 2, GFP_KERNEL);
 			start_data = index_str + IXC_NEXT;
 			for (j = 0; j < burst_num; j++) {
 				burst_data[j * 2] = (regset.regs[j * IXC_NEXT + start_data] & 0xFF00) >> 8;
@@ -140,10 +140,10 @@ int sensor_cis_write_registers(struct v4l2_subdev *subdev, const struct sensor_r
 			if (ret < 0) {
 				err("write8_sequential(burst) fail, ret(%d), addr(%#x), data(%#x)",
 						ret, regset.regs[index_str], burst_data[0]);
-				vfree(burst_data);
+				pablo_free(burst_data);
 				goto p_err;
 			}
-			vfree(burst_data);
+			pablo_free(burst_data);
 			burst_num = 1;
 			break;
 
@@ -154,7 +154,7 @@ int sensor_cis_write_registers(struct v4l2_subdev *subdev, const struct sensor_r
 				break;
 			}
 
-			burst_data = vmalloc(burst_num);
+			burst_data = pablo_malloc(burst_num, GFP_KERNEL);
 			start_data = index_str + IXC_NEXT;
 			for (j = 0; j < burst_num; j++) {
 				burst_data[j] = regset.regs[j * IXC_NEXT + start_data];
@@ -165,10 +165,10 @@ int sensor_cis_write_registers(struct v4l2_subdev *subdev, const struct sensor_r
 			if (ret < 0) {
 				err("write8_sequential(burst) fail, ret(%d), addr(%#x), data(%#x)",
 						ret, regset.regs[index_str], burst_data[0]);
-				vfree(burst_data);
+				pablo_free(burst_data);
 				goto p_err;
 			}
-			vfree(burst_data);
+			pablo_free(burst_data);
 			burst_num = 1;
 			break;
 
@@ -587,6 +587,7 @@ void sensor_cis_data_calculation(struct v4l2_subdev *subdev, u32 mode)
 	u32 min_exp = 0, max_exp = 0;
 	u32 min_again = 0, max_again = 0;
 	u32 min_dgain = 0, max_dgain = 0;
+	u16 readout_factor;
 
 	WARN_ON(!subdev);
 
@@ -608,6 +609,7 @@ void sensor_cis_data_calculation(struct v4l2_subdev *subdev, u32 mode)
 	fll = mode_info->frame_length_lines;
 	llp = mode_info->line_length_pck;
 	fll_x_llp = fll * llp;
+	readout_factor = 1;
 
 	/* the time of processing one frame calculation (us) */
 	cis_data->min_frame_us_time = (u64)fll_x_llp * 1000 * 1000 / pclk_hz;
@@ -629,15 +631,20 @@ void sensor_cis_data_calculation(struct v4l2_subdev *subdev, u32 mode)
 	if (((pclk_hz * 10) / fll_x_llp) % 10 >= 5)
 		max_fps++;
 
+	if (mode_info->dual_tline_mode)
+		readout_factor = 2;
+	else
+		readout_factor = 1;
+
 	cis_data->pclk = pclk_hz;
 	cis_data->max_fps = max_fps;
 	cis_data->pre_frame_length_lines = cis_data->frame_length_lines;
 	cis_data->frame_length_lines = fll;
 	cis_data->pre_line_length_pck = cis_data->line_length_pck;
 	cis_data->line_length_pck = llp;
-	cis_data->line_readOut_time = (u64)llp * 1000 * 1000 * 1000 / pclk_hz;
+	cis_data->line_readOut_time = (u64)llp * readout_factor * 1000 * 1000 * 1000 / pclk_hz;
 
-	frame_valid_us = (u64)cis_data->cur_height * llp * 1000 * 1000 / pclk_hz;
+	frame_valid_us = (u64)cis_data->cur_height * llp * readout_factor * 1000 * 1000 / pclk_hz;
 	cis_data->frame_valid_us_time = (unsigned int)frame_valid_us;
 
 	cis_data->frame_time = (cis_data->line_readOut_time * cis_data->cur_height / 1000);
@@ -657,7 +664,8 @@ void sensor_cis_data_calculation(struct v4l2_subdev *subdev, u32 mode)
 
 	dbg_sensor(1, "%s [%d][%s] mode[%d], fps[%d] = pclk[%lld] / (fll[%d:0x%x] * llp[%d:0x%x]), max fps=%d\n",
 		__func__, cis->id, cis->sensor_info->name, mode, frame_rate, pclk_hz, fll, fll, llp, llp, max_fps);
-	dbg_sensor(1, "frame_valid_us (%d us), min_frame_us_time(%d us)\n",
+	dbg_sensor(1, "line_readOut_time(%d ns),frame_valid_us (%d us), min_frame_us_time(%d us)\n",
+		(mode_info->dual_tline_mode ? cis_data->line_readOut_time / 2 : cis_data->line_readOut_time),
 		frame_valid_us, cis_data->min_frame_us_time);
 	dbg_sensor(1, "frame_time(%d), rolling_shutter_skew(%lld)\n",
 		cis_data->frame_time, cis_data->rolling_shutter_skew);
@@ -798,7 +806,9 @@ int sensor_cis_set_exposure_time(struct v4l2_subdev *subdev, struct ae_param *ta
 
 	cit_long = ((exp.long_val * pclk_khz) / 1000 - min_fine_int) / line_length_pck;
 	CALL_CISOPS(cis, cis_check_cit_contraint, subdev, &cit_long);
-	cit_long = ALIGN_DOWN(cit_long, mode_info->align_cit);
+	if (cit_long < mode_info->offset_cit)
+		cit_long = mode_info->offset_cit;
+	cit_long = ALIGN_DOWN(cit_long - mode_info->offset_cit, mode_info->align_cit) + mode_info->offset_cit;
 	if (cit_long < cis_data->min_coarse_integration_time) {
 		dbg_sensor(1, "%s [%d][%d][%s] cit_long(%d) min(%d)\n",
 			__func__, cis->id, cis_data->sen_vsync_count, cis->sensor_info->name,
@@ -808,7 +818,9 @@ int sensor_cis_set_exposure_time(struct v4l2_subdev *subdev, struct ae_param *ta
 
 	cit_short = ((exp.short_val * pclk_khz) / 1000 - min_fine_int) / line_length_pck;
 	CALL_CISOPS(cis, cis_check_cit_contraint, subdev, &cit_short);
-	cit_short = ALIGN_DOWN(cit_short, mode_info->align_cit);
+	if (cit_short < mode_info->offset_cit)
+		cit_short = mode_info->offset_cit;
+	cit_short = ALIGN_DOWN(cit_short - mode_info->offset_cit, mode_info->align_cit) + mode_info->offset_cit;
 	if (cit_short < cis_data->min_coarse_integration_time) {
 		dbg_sensor(1, "%s [%d][%d][%s] cit_short(%d) min(%d)\n",
 			__func__, cis->id, cis_data->sen_vsync_count, cis->sensor_info->name,
@@ -1949,6 +1961,7 @@ int sensor_cis_get_mode_info(struct v4l2_subdev *subdev, u32 mode, struct is_sen
 	unsigned int max_fine_integration_time;
 	unsigned int min_coarse_integration_time;
 	unsigned int max_margin_coarse_integration_time;
+	u16 readout_factor;
 
 	WARN_ON(!subdev);
 	WARN_ON(!mode_info);
@@ -1966,6 +1979,7 @@ int sensor_cis_get_mode_info(struct v4l2_subdev *subdev, u32 mode, struct is_sen
 	pclk_khz = pclk_hz / (1000);
 	fll = cis_mode_info->frame_length_lines;
 	llp = cis_mode_info->line_length_pck;
+	readout_factor = 1;
 
 	/* the time of processing one frame calculation (us) */
 	min_frame_us_time = (u64)fll * llp * 1000 * 1000 / pclk_hz;
@@ -1978,7 +1992,12 @@ int sensor_cis_get_mode_info(struct v4l2_subdev *subdev, u32 mode, struct is_sen
 	if (((pclk_hz * 10) / ((u64)fll * (u64)llp)) % 10 >= 5)
 		max_fps++;
 
-	frame_valid_us = (u64)cis_data->cur_height * llp * 1000 * 1000 / pclk_hz;
+	if (cis_mode_info->dual_tline_mode)
+		readout_factor = 2;
+	else
+		readout_factor = 1;
+
+	frame_valid_us = (u64)cis_data->cur_height * llp * readout_factor * 1000 * 1000 / pclk_hz;
 
 	if (cis_mode_info->fine_integration_time > 0) {
 		min_fine_integration_time = cis_mode_info->fine_integration_time;
@@ -2275,7 +2294,6 @@ int sensor_cis_parse_dt(struct device *dev, struct v4l2_subdev *subdev)
 }
 EXPORT_SYMBOL_GPL(sensor_cis_parse_dt);
 
-#if defined(USE_RECOVER_I2C_TRANS)
 void sensor_cis_recover_i2c_fail(struct v4l2_subdev *subdev_cis)
 {
 	struct is_device_sensor *device;
@@ -2291,7 +2309,6 @@ void sensor_cis_recover_i2c_fail(struct v4l2_subdev *subdev_cis)
 
 	sensor_module_power_reset(subdev_module, device);
 }
-#endif
 
 int sensor_cis_wait_streamoff(struct v4l2_subdev *subdev)
 {
@@ -2877,7 +2894,7 @@ int sensor_cis_probe(void *client, struct device *client_dev,
 	device = &core->sensor[sensor_dev_id];
 
 	cis = &sp->cis;
-	subdev_cis = kzalloc(sizeof(struct v4l2_subdev), GFP_KERNEL);
+	subdev_cis = pablo_zalloc(sizeof(struct v4l2_subdev), GFP_KERNEL);
 	if (!subdev_cis) {
 		probe_err("subdev_cis is NULL");
 		return -ENOMEM;
@@ -2888,7 +2905,7 @@ int sensor_cis_probe(void *client, struct device *client_dev,
 	cis->client = client;
 	cis->mipi_clock_index_cur = CAM_MIPI_NOT_INITIALIZED;
 	cis->mipi_clock_index_new = CAM_MIPI_NOT_INITIALIZED;
-	cis->cis_data = kzalloc(sizeof(cis_shared_data), GFP_KERNEL);
+	cis->cis_data = pablo_zalloc(sizeof(cis_shared_data), GFP_KERNEL);
 	if (!cis->cis_data) {
 		err("cis_data is NULL");
 		ret = -ENOMEM;
@@ -2921,7 +2938,7 @@ int sensor_cis_probe(void *client, struct device *client_dev,
 	return 0;
 
 err_alloc_cis_data:
-	kfree(subdev_cis);
+	pablo_free(subdev_cis);
 
 	return ret;
 }

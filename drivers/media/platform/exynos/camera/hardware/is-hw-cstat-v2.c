@@ -550,6 +550,7 @@ static void is_hw_cstat_set_config_lock_delay(struct is_hw_ip *hw_ip, u32 instan
 			frame->result = IS_SHOT_CONFIG_LOCK_DELAY;
 
 		framemgr_x_barrier(framemgr, 0);
+		cstat_hw_config_lock_delay_handler(hw_ip->regs[REG_SETA], hw_ip->ch, (hw_ip->num_buffers & 0xffff));
 	}
 }
 
@@ -967,7 +968,7 @@ static int is_hw_cstat_open(struct is_hw_ip *hw_ip, u32 instance)
 	frame_manager_probe(hw_ip->framemgr, "HWCSTAT");
 	frame_manager_open(hw_ip->framemgr, IS_MAX_HW_FRAME, false);
 
-	hw = vzalloc(sizeof(struct is_hw_cstat));
+	hw = pablo_zalloc(sizeof(struct is_hw_cstat), GFP_KERNEL);
 	if (!hw) {
 		mserr_hw("failed to alloc is_hw_cstat", instance, hw_ip);
 		ret = -ENOMEM;
@@ -977,16 +978,18 @@ static int is_hw_cstat_open(struct is_hw_ip *hw_ip, u32 instance)
 	hw_ip->priv_info = (void *)hw;
 	hw->icpu_adt = pablo_get_icpu_adt();
 
+	cstat_hw_internal_buf_alloc(hw_ip->ch);
+
 	is_hw_cstat_open_crta_bufmgr(hw_ip, instance);
 
-	hw->iq_set.regs = vzalloc(sizeof(struct cr_set) * reg_cnt);
+	hw->iq_set.regs = pablo_zalloc(sizeof(struct cr_set) * reg_cnt, GFP_KERNEL);
 	if (!hw->iq_set.regs) {
 		mserr_hw("failed to alloc iq_set.regs", instance, hw_ip);
 		ret = -ENOMEM;
 		goto err_regs_alloc;
 	}
 
-	hw->cur_iq_set.regs = vzalloc(sizeof(struct cr_set) * reg_cnt);
+	hw->cur_iq_set.regs = pablo_zalloc(sizeof(struct cr_set) * reg_cnt, GFP_KERNEL);
 	if (!hw->cur_iq_set.regs) {
 		mserr_hw("failed to alloc cur_iq_set.regs", instance, hw_ip);
 		ret = -ENOMEM;
@@ -1014,11 +1017,11 @@ static int is_hw_cstat_open(struct is_hw_ip *hw_ip, u32 instance)
 	return 0;
 
 err_cur_regs_alloc:
-	vfree(hw->iq_set.regs);
+	pablo_free(hw->iq_set.regs);
 	hw->iq_set.regs = NULL;
 
 err_regs_alloc:
-	vfree(hw);
+	pablo_free(hw);
 	hw_ip->priv_info = NULL;
 
 err_hw_alloc:
@@ -1141,14 +1144,14 @@ static int is_hw_cstat_close(struct is_hw_ip *hw_ip, u32 instance)
 
 	hw = (struct is_hw_cstat *)hw_ip->priv_info;
 
-	vfree(hw->iq_set.regs);
+	pablo_free(hw->iq_set.regs);
 	hw->iq_set.regs = NULL;
-	vfree(hw->cur_iq_set.regs);
+	pablo_free(hw->cur_iq_set.regs);
 	hw->cur_iq_set.regs = NULL;
 
 	is_hw_cstat_close_crta_bufmgr(hw_ip, instance);
 
-	vfree(hw);
+	pablo_free(hw);
 	hw_ip->priv_info = NULL;
 
 	frame_manager_close(hw_ip->framemgr);
@@ -2427,6 +2430,10 @@ static int _is_hw_cstat_shot(struct is_hw_ip *hw_ip, struct is_frame *frame, ulo
 		mserr_hw("s_dma fail", instance, hw_ip);
 		goto shot_fail_recovery;
 	}
+
+	/* when config lock delay need to set dma_en = 0 directly in the HW CR  */
+	if (frame->result == IS_SHOT_CONFIG_LOCK_DELAY)
+		cstat_hw_config_lock_delay_handler(hw_ip->regs[REG_SETA], hw_ip->ch, (hw_ip->num_buffers & 0xffff));
 
 	ret = is_hw_cstat_trigger(hw_ip, instance, frame->fcount);
 	if (ret) {

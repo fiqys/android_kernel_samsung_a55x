@@ -1125,7 +1125,7 @@ void dwc3_ep0_end_control_data(struct dwc3 *dwc, struct dwc3_ep *dep)
 	cmd = DWC3_DEPCMD_ENDTRANSFER;
 	cmd |= DWC3_DEPCMD_CMDIOC;
 	cmd |= DWC3_DEPCMD_PARAM(dep->resource_index);
-memset(&params, 0, sizeof(params));
+	memset(&params, 0, sizeof(params));
 	ret = dwc3_send_gadget_ep_cmd(dep, cmd, &params);
 	if (ret)
 		dev_err_ratelimited(dwc->dev,

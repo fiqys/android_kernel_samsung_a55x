@@ -21,11 +21,11 @@
 #define __LINUX_USB_DWC3_EXYNOS_H
 
 /* Exynos Specific Register Definition */
+#define DWC3_GDBGLSPMUX_HST	0xc170
 
 /* LINK Registers */
 #define DWC3_LU3LFPSRXTIM	0xd010
 #define DWC3_LSKIPFREQ		0xd020
-#define DWC3_LLUCTL		0xd024
 #define DWC3_BU31RHBDBG		0xd800
 
 /* Link Register - LLUCTL */
@@ -107,7 +107,11 @@ struct dwc3_exynos {
 	/* To check USB connection */
 	int			vbus_state;
 	struct dwc3_exynos_config config;
-
+#if IS_ENABLED(CONFIG_SOC_S5E8845)
+	bool 			force_pullup;
+	bool			pullup_state;
+#endif
+	 
 #if IS_ENABLED(CONFIG_USB_EXYNOS_RETRY_CONFIGURATION)
 	/* Timer and retry count for USB device reconnection */
 	struct timer_list	usb_connect_timer;
@@ -131,6 +135,17 @@ struct usb_xhci_pre_alloc {
 
 	dma_addr_t	dma;
 };
+
+#if IS_ENABLED(CONFIG_SOC_S5E8845)
+struct usb_udc {
+        struct usb_gadget_driver        *driver;
+        struct usb_gadget               *gadget;
+        struct device                   dev;
+        struct list_head                list;
+        bool                            vbus;
+        bool                            started;
+};
+#endif
 
 extern int usb_idle_ip_index;
 bool dwc3_exynos_rsw_available(struct device *dev);

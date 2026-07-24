@@ -14,14 +14,9 @@
 
 #include "is-core.h"
 #include "is-sec-define.h"
-#include "is-device-ois.h"
+#include "is-device-ois_common.h"
+#include "is-vendor-ois-core.h"
 #include "is-vendor-private.h"
-#include "is-vendor-ois.h"
-#if defined(CONFIG_CAMERA_USE_EXTERNAL_MCU)
-#include "is-vendor-ois-external-mcu.h"
-#elif defined(CONFIG_CAMERA_USE_AOIS)
-#include "is-vendor-aois.h"
-#endif
 #include "is-sysfs-ois.h"
 
 struct device *camera_ois_dev;
