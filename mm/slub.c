@@ -1969,7 +1969,7 @@ def_alloc:
 		va_page = (u64)__va(page_to_phys(folio_page(folio, 0)));
 
 		if (type) {
-			for (sc = 0; sc < (1 << oo_order(oo)); sc++) {
+			for (sc = 0; sc < ((u64)1 << oo_order(oo)); sc++) {
 				uh_call(UH_APP_KDP, SET_SLAB_RO, va_page, type, 0, 0);
 				va_page += PAGE_SIZE;
 			}
@@ -1979,6 +1979,7 @@ def_alloc:
 	return slab;
 }
 #endif
+
 static inline struct slab *alloc_slab_page(gfp_t flags, int node,
 		struct kmem_cache_order_objects oo)
 {
@@ -2151,7 +2152,6 @@ static struct slab *allocate_slab(struct kmem_cache *s, gfp_t flags, int node)
 		stat(s, ORDER_FALLBACK);
 	}
 #else
-
 	slab = alloc_slab_page(alloc_gfp, node, oo);
 	if (unlikely(!slab)) {
 		oo = s->min;
@@ -2222,7 +2222,7 @@ static void free_ro_pages(struct kmem_cache *s, struct page *page, int order)
 	va_page = (unsigned long long)__va(page_to_phys(page));
 #ifdef CONFIG_RKP
 	if (is_rkp_ro_buffer(va_page)) {
-		for (sc = 0; sc < (1 << order); sc++) {
+		for (sc = 0; sc < ((unsigned long long)1 << order); sc++) {
 			uh_call(UH_APP_KDP, PGD_RWX, va_page, 0, 0, 0);
 			rkp_ro_free((void *)va_page);
 			va_page += PAGE_SIZE;
@@ -2231,7 +2231,7 @@ static void free_ro_pages(struct kmem_cache *s, struct page *page, int order)
 	}
 #endif
 	spin_lock_irqsave(&ro_pages_lock,flags);
-	for (sc = 0; sc < (1 << order); sc++) {
+	for (sc = 0; sc < ((unsigned long long)1 << order); sc++) {
 		uh_call(UH_APP_KDP, PGD_RWX, va_page, 0, 0, 0);
 		va_page += PAGE_SIZE;
 	}
@@ -3093,11 +3093,8 @@ static inline bool free_debug_processing(struct kmem_cache *s,
 
 #ifdef CONFIG_KDP
 	if (is_kdp_kmem_cache(s))
-		return true;
+		return false;
 #endif
-
-	if (s->flags & SLAB_STORE_USER)
-		handle = set_track_prepare(GFP_KERNEL);
 
 	if (s->flags & SLAB_CONSISTENCY_CHECKS) {
 		if (!check_slab(s, slab))
@@ -3142,6 +3139,7 @@ out_cnt:
 	}
 
 out:
+
 	if (!checks_ok) {
 		secdbg_slub_bug();
 		slab_fix(s, "Object at 0x%p not freed", object);
@@ -5479,7 +5477,7 @@ static void process_slab(struct loc_track *t, struct kmem_cache *s,
 	void *addr = slab_address(slab);
 	bool is_alloc = (alloc == TRACK_ALLOC);
 	void *p;
-	
+
 #ifdef CONFIG_KDP
 	if (is_kdp_kmem_cache(s))
 		return;
