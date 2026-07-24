@@ -654,3 +654,4 @@ enum usbpd_msg_type {
 };
 
 #endif
+

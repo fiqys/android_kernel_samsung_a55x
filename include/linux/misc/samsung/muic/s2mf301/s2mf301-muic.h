@@ -25,12 +25,11 @@
 #include <linux/misc/samsung/muic/common/muic.h>
 #include <linux/misc/samsung/muic/common/muic_interface.h>
 #if IS_ENABLED (CONFIG_HV_MUIC_S2MF301_AFC)
-#include <linux/muic/slsi/s2mf301/s2mf301-muic-hv.h>
+#include <linux/muic/s2mf301/s2mf301-muic-hv.h>
 #endif
 
 #define MUIC_DEV_NAME   "muic-s2mf301"
 
-/*
 #define MASK_1b     (0x1)
 #define MASK_2b     (0x3)
 #define MASK_3b     (0x7)
@@ -39,7 +38,6 @@
 #define MASK_6b     (0x3f)
 #define MASK_7b     (0x7f)
 #define MASK_8b     (0xff)
-*/
 
 enum s2mf301_muic_registers {
 	S2MF301_REG_AFC_INT             = 0x00,
