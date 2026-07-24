@@ -924,12 +924,6 @@ static bool f2fs_force_buffered_io(struct inode *inode, int rw)
 	 */
 	if (f2fs_has_inline_data(inode) && rw == READ)
 		return true;
-	/*
-	 * only force direct read to use buffered IO, for direct write,
-	 * it expects inline data conversion before committing IO.
-	 */
-	if (f2fs_has_inline_data(inode) && rw == READ)
-		return true;
 
 	/* disallow direct IO if any of devices has unaligned blksize */
 	if (f2fs_is_multi_device(sbi) && !sbi->aligned_blksize)
@@ -1871,27 +1865,6 @@ next_alloc:
 				goto out_err;
 			}
 		}
-		
-		if (sbi->pin_guaranteed_blkaddr) {
-			unsigned int secno, last_secno;
-			
-			last_secno = GET_SECNO(sbi, sbi->pin_guaranteed_blkaddr - 1);
-
-			spin_lock(&FREE_I(sbi)->segmap_lock);
-			secno = find_next_zero_bit(FREE_I(sbi)->free_secmap,
-						 MAIN_SECS(sbi), 0);
-			if (secno > last_secno) {
-				spin_unlock(&FREE_I(sbi)->segmap_lock);
-				err = f2fs_gc_for_pinned_type(sbi);
-				if (err) {
-					f2fs_up_write(&sbi->pin_sem);
-					goto out_err;
-				}
-			} else {
-				sbi->pin_reserved_sec = secno;
-				spin_unlock(&FREE_I(sbi)->segmap_lock);
-			}
-		}
 
 		if (sbi->pin_guaranteed_blkaddr) {
 			unsigned int secno, last_secno;
@@ -2309,11 +2282,12 @@ static int f2fs_ioc_start_atomic_write(struct file *filp, bool truncate)
 
 		ret = f2fs_do_truncate_blocks(fi->cow_inode, 0, true);
 		if (ret) {
-                        f2fs_up_write(&cow_fi->i_gc_rwsem[WRITE]);
+			f2fs_up_write(&cow_fi->i_gc_rwsem[WRITE]);
 			goto out_unlock;
+		}
+
+		f2fs_up_write(&cow_fi->i_gc_rwsem[WRITE]);
 	}
-        f2fs_up_write(&cow_fi->i_gc_rwsem[WRITE]);
-}
 
 	f2fs_write_inode(inode, NULL);
 
@@ -4756,16 +4730,17 @@ static ssize_t f2fs_dio_read_iter(struct kiocb *iocb, struct iov_iter *to)
 		f2fs_down_read(&fi->i_gc_rwsem[READ]);
 	}
 
-	 /* Check if compressed after getting locked */
-	if (f2fs_has_compressed_data(inode)) {
-		f2fs_up_read(&fi->i_gc_rwsem[READ]);
-		ret = -EAGAIN;
-}
-
 	/* dio is not compatible w/ atomic file */
 	if (f2fs_is_atomic_file(inode)) {
 		f2fs_up_read(&fi->i_gc_rwsem[READ]);
 		ret = -EOPNOTSUPP;
+		goto out;
+	}
+
+	 /* Check if compressed after getting locked */
+	if (f2fs_has_compressed_data(inode)) {
+		f2fs_up_read(&fi->i_gc_rwsem[READ]);
+		ret = -EAGAIN;
 		goto out;
 	}
 

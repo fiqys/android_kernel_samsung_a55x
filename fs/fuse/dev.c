@@ -116,11 +116,8 @@ static struct fuse_req *fuse_get_req(struct fuse_mount *fm, bool for_background)
 
 	if (fuse_block_alloc(fc, for_background)) {
 		err = -EINTR;
-#ifdef CONFIG_FUSE_FREEZABLE_WAIT
+		/* @fs.sec -- a6ac3f69447811167e8f28b50091114e -- */
 		if (fuse_wait_event_killable_exclusive(fc->blocked_waitq,
-#else
-		if (wait_event_killable_exclusive(fc->blocked_waitq,
-#endif
 				!fuse_block_alloc(fc, for_background)))
 			goto out;
 	}
@@ -401,11 +398,7 @@ static void request_wait_answer(struct fuse_req *req)
 
 	if (!test_bit(FR_FORCE, &req->flags)) {
 		/* Only fatal signals may interrupt this */
-#ifdef CONFIG_FUSE_FREEZABLE_WAIT
 		err = fuse_wait_event_killable(req->waitq,
-#else
-		err = wait_event_killable(req->waitq,
-#endif
 					test_bit(FR_FINISHED, &req->flags));
 		if (!err)
 			return;
@@ -426,11 +419,7 @@ static void request_wait_answer(struct fuse_req *req)
 	 * Either request is already in userspace, or it was forced.
 	 * Wait it out.
 	 */
-#ifdef CONFIG_FUSE_FREEZABLE_WAIT
 	fuse_wait_event(req->waitq, test_bit(FR_FINISHED, &req->flags));
-#else
-	wait_event(req->waitq, test_bit(FR_FINISHED, &req->flags));
-#endif
 }
 
 static void __fuse_request_send(struct fuse_req *req)
@@ -2179,9 +2168,9 @@ void fuse_abort_conn(struct fuse_conn *fc)
 {
 	struct fuse_iqueue *fiq = &fc->iq;
 
+	/* @fs.sec -- d7bd5cc97a05d48e04defc719fbaffefdd4e6f22 -- */
 	ST_LOG("<%s> dev = %u:%u  fuse abort all requests",
 			__func__, MAJOR(fc->dev), MINOR(fc->dev));
-
 	spin_lock(&fc->lock);
 	if (fc->connected) {
 		struct fuse_dev *fud;
@@ -2247,11 +2236,7 @@ void fuse_wait_aborted(struct fuse_conn *fc)
 {
 	/* matches implicit memory barrier in fuse_drop_waiting() */
 	smp_mb();
-#ifdef CONFIG_FUSE_FREEZABLE_WAIT
 	fuse_wait_event(fc->blocked_waitq, atomic_read(&fc->num_waiting) == 0);
-#else
-	wait_event(fc->blocked_waitq, atomic_read(&fc->num_waiting) == 0);
-#endif
 }
 
 int fuse_dev_release(struct inode *inode, struct file *file)

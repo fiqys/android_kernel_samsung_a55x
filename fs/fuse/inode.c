@@ -761,11 +761,7 @@ static void fuse_sync_fs_writes(struct fuse_conn *fc)
 	 */
 	atomic_dec(&bucket->count);
 
-#ifdef CONFIG_FUSE_FREEZABLE_WAIT
 	fuse_wait_event(bucket->waitq, atomic_read(&bucket->count) == 0);
-#else
-	wait_event(bucket->waitq, atomic_read(&bucket->count) == 0);
-#endif
 
 	/* Drop temp count on descendant bucket */
 	fuse_sync_bucket_dec(new_bucket);
@@ -1552,6 +1548,9 @@ void fuse_send_init(struct fuse_mount *fm)
 	ia->args.force = true;
 	ia->args.nocreds = true;
 	ia->args.end = process_init_reply;
+
+	ST_LOG("<%s> dev = %u:%u  fuse send Initrequest",
+			__func__, MAJOR(fm->fc->dev), MINOR(fm->fc->dev));
 
 	if (unlikely(fm->fc->no_daemon) || fuse_simple_background(fm, &ia->args, GFP_KERNEL) != 0)
 		process_init_reply(fm, &ia->args, -ENOTCONN);

@@ -1461,7 +1461,6 @@ ssize_t fuse_passthrough_read_iter(struct kiocb *iocb, struct iov_iter *to);
 ssize_t fuse_passthrough_write_iter(struct kiocb *iocb, struct iov_iter *from);
 ssize_t fuse_passthrough_mmap(struct file *file, struct vm_area_struct *vma);
 
-#ifdef CONFIG_FUSE_FREEZABLE_WAIT
 #define fuse_wait_event(wq, condition)					\
 	wait_event_state(wq, condition, (TASK_UNINTERRUPTIBLE|TASK_FREEZABLE))
 
@@ -1478,7 +1477,6 @@ ssize_t fuse_passthrough_mmap(struct file *file, struct vm_area_struct *vma);
 				1, 0, schedule());			\
 	___ret;								\
 })
-#endif /* CONFIG_FUSE_FREEZABLE_WAIT */
 
 /* backing.c */
 
