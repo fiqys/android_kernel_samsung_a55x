@@ -13,7 +13,7 @@
 	};
 };
 
-/* /home/dpi/qb5_8814/workspace/P4_1716/android/kernel/kmodule/sensorhub/lsi/s5e8845/dts/sensorhub_s5e8845.a55x.dtsi */
+/* /home/dpi/qb5_8815/workspace/P4_1716/android/kernel/kmodule/sensorhub/lsi/s5e8845/dts/sensorhub_s5e8845.a55x.dtsi */
 / {
 	fragment@model {
 		target-path = "/";
@@ -32,7 +32,7 @@
 		};
 	};
 };
-/* /home/dpi/qb5_8814/workspace/P4_1716/android/kernel/kmodule/sensorhub/lsi/s5e8845/dts/sensorhub_s5e8845.a55x.04.dtsi */
+/* /home/dpi/qb5_8815/workspace/P4_1716/android/kernel/kmodule/sensorhub/lsi/s5e8845/dts/sensorhub_s5e8845.a55x.04.dtsi */
 / {
 	fragment@model {
 		target-path = "/";

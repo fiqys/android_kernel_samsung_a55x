@@ -803,7 +803,7 @@
 	};
 };
 
-/* /home/dpi/qb5_8814/workspace/P4_1716/android/kernel/kmodule/samsung/slsi/debug/6.1/samsung_debug_6_1._ap_slsi_s5e8845.dtsi */
+/* /home/dpi/qb5_8815/workspace/P4_1716/android/kernel/kmodule/samsung/slsi/debug/6.1/samsung_debug_6_1._ap_slsi_s5e8845.dtsi */
 
 &sec_debug_reset_reason {
 	rst_stat = "CLUSTER0_DBGRSTREQ0", "CLUSTER0_DBGRSTREQ1", "CLUSTER0_DBGRSTREQ2", "CLUSTER0_DBGRSTREQ3",
@@ -1371,7 +1371,7 @@
 	};
 };
 
-/* /home/dpi/qb5_8814/workspace/P4_1716/android/kernel/kmodule/sensorhub/lsi/s5e8845/dts/sensorhub_s5e8845.a55x.dtsi */
+/* /home/dpi/qb5_8815/workspace/P4_1716/android/kernel/kmodule/sensorhub/lsi/s5e8845/dts/sensorhub_s5e8845.a55x.dtsi */
 / {
 	fragment@model {
 		target-path = "/";
@@ -1390,7 +1390,7 @@
 		};
 	};
 };
-/* /home/dpi/qb5_8814/workspace/P4_1716/android/kernel/kmodule/sensorhub/lsi/s5e8845/dts/sensorhub_s5e8845.a55x.03.dtsi */
+/* /home/dpi/qb5_8815/workspace/P4_1716/android/kernel/kmodule/sensorhub/lsi/s5e8845/dts/sensorhub_s5e8845.a55x.03.dtsi */
 / {
 	fragment@model {
 		target-path = "/";
@@ -1753,7 +1753,7 @@
 	};
 };
 
-/* /home/dpi/qb5_8814/workspace/P4_1716/android/kernel/kmodule/battery/suwon/charger/sm5461/sm5461_charger.a55x.dtsi */
+/* /home/dpi/qb5_8815/workspace/P4_1716/android/kernel/kmodule/battery/suwon/charger/sm5461/sm5461_charger.a55x.dtsi */
 &sm5461_charger {
 	sm5461,topoff = <450>;
 };
@@ -2513,7 +2513,7 @@
 #endif
 
 
-/* /home/dpi/qb5_8814/workspace/P4_1716/android/kernel/kmodule/pmic/slsi/S2MPU15/dts/pmic_S2MPU15.a55x.dtsi */
+/* /home/dpi/qb5_8815/workspace/P4_1716/android/kernel/kmodule/pmic/slsi/S2MPU15/dts/pmic_S2MPU15.a55x.dtsi */
 /delete-node/ &l19_reg;
 /delete-node/ &l21_reg;
 
@@ -2706,7 +2706,7 @@
 	};
 };
 
-/* /home/dpi/qb5_8814/workspace/P4_1716/android/kernel/kmodule/input/sec_input_2023/touchscreen/goodix/berlin/dts/input-lsi-tsp-berlin.a55x.dtsi */
+/* /home/dpi/qb5_8815/workspace/P4_1716/android/kernel/kmodule/input/sec_input_2023/touchscreen/goodix/berlin/dts/input-lsi-tsp-berlin.a55x.dtsi */
 &tsp_goodix {
 	status = "okay";
 	/delete-property/ tsp_io_ldo-supply;
@@ -2801,7 +2801,7 @@
 };
 
 
-/* /home/dpi/qb5_8814/workspace/P4_1716/android/kernel/kmodule/battery/suwon/fuelgauge/s2mf301/a55x/s2mf301_fuelgauge.dtsi */
+/* /home/dpi/qb5_8815/workspace/P4_1716/android/kernel/kmodule/battery/suwon/fuelgauge/s2mf301/a55x/s2mf301_fuelgauge.dtsi */
 /*
  * s2mf301 battery device tree common
  *
@@ -3699,7 +3699,7 @@
 	};
 };
 
-/* /home/dpi/qb5_8814/workspace/P4_1716/android/kernel/kmodule/sec_pm/sec_thermistor/dts/sec_thermistor_lsi.a55x.dtsi */
+/* /home/dpi/qb5_8815/workspace/P4_1716/android/kernel/kmodule/sec_pm/sec_thermistor/dts/sec_thermistor_lsi.a55x.dtsi */
 &sec_ap_thermistor {
 	adc_array = <269 319 374 443 519 613 727 854 995 1156
 		1334 1532 1748 1980 2220 2471 2711 2933 3140 3320
@@ -4404,7 +4404,7 @@
 };
 
 
-/* /home/dpi/qb5_8814/workspace/P4_1716/android/kernel/kmodule/battery/suwon/common/sec_direct_charger/dts/a55x/sec_direct_charger.dtsi */
+/* /home/dpi/qb5_8815/workspace/P4_1716/android/kernel/kmodule/battery/suwon/common/sec_direct_charger/dts/a55x/sec_direct_charger.dtsi */
 
 &smd {
 	pass-through {
@@ -4937,7 +4937,7 @@
 	};
 };
 
-/* /home/dpi/qb5_8814/workspace/P4_1716/android/kernel/kmodule/battery/suwon/common/dts/a55x/battery_common.dtsi */
+/* /home/dpi/qb5_8815/workspace/P4_1716/android/kernel/kmodule/battery/suwon/common/dts/a55x/battery_common.dtsi */
 #include <dt-bindings/battery/sec-battery.h>
 
 #define MAX_FV 4450
@@ -5117,7 +5117,7 @@
 	};
 };
 
-/* /home/dpi/qb5_8814/workspace/P4_1716/android/kernel/kmodule/battery/suwon/common/dts/a55x/battery_common.01.dtsi */
+/* /home/dpi/qb5_8815/workspace/P4_1716/android/kernel/kmodule/battery/suwon/common/dts/a55x/battery_common.01.dtsi */
 
 /* revision devicetree for general */
 #include "s5e8845.a55x_mea_open.03.dtsi"

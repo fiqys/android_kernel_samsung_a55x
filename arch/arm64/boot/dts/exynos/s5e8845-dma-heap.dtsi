@@ -72,7 +72,7 @@
 		/* "dma-heap,alloc-size" means the size to be allocated in cma_alloc().
 		   The reg described in memory-region means the range to be cma_alloc().
 		   If this property is not written, it will be allocated the size of reg. */
-		dma-heap,alloc-size = <0x2000000>;
+		dma-heap,alloc-size = <0x07400000>;
 	};
 
 	tui_dma_heap {
@@ -90,6 +90,11 @@
 		memory-region = <&rbin>;
 		dma-heap,name = "camera";
 		dma-heap,alignment = <0x10000>;
+	};
+
+	camerapool_dma_heap {
+		compatible = "samsung,dma-heap-camerapool";
+		dma-heap,name = "camerapool";
 	};
 };
 
@@ -131,7 +136,7 @@
 		/* In reg, CMA allocation range(base ~ base + size) for secure camera is written.
 		   If base and size are modified, SECURE_CAMERA_MEM_ADDR and SECURE_CAMERA_MEM_SIZE
 		   defined in "is-config.h" must also be modified. */
-		reg = <0x0 0x96000000 0x4000000>;
+		reg = <0x0 0x96000000 0x07400000>;
 		alignment = <0x0 0x00010000>;
 		reusable;
 	};
