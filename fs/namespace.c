@@ -31,9 +31,9 @@
 #include <uapi/linux/mount.h>
 #include <linux/fs_context.h>
 #include <linux/shmem_fs.h>
+#include <linux/mnt_idmapping.h>
 #include <linux/delay.h>
 #include <linux/fslog.h>
-#include <linux/mnt_idmapping.h>
 
 #include "pnode.h"
 #include "internal.h"
@@ -1904,7 +1904,6 @@ static int ksys_umount(char __user *name, int flags)
 #ifdef CONFIG_PAGE_BOOST_RECORDING
 	forced_init_record();
 #endif
-
 	if (!(flags & UMOUNT_NOFOLLOW))
 		lookup_flags |= LOOKUP_FOLLOW;
 	ret = user_path_at(AT_FDCWD, name, lookup_flags, &path);
@@ -2828,12 +2827,12 @@ static int do_remount(struct path *path, int ms_flags, int sb_flags,
 				unlock_mount_hash();
 			}
 		}
-		
+
 		while (atomic_read(&f2fs_check_pkt_flag) && retry--) {
 			pr_info("%s: wait for end dquot_writback_dquots()!!!!!\n", __func__);
 			mdelay(1);
 		}
-		
+
 		up_write(&sb->s_umount);
 		pr_info("%s: up_write-> s_umount!\n", __func__);
 	}

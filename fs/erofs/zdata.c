@@ -166,7 +166,7 @@ static void z_erofs_onlinepage_end(struct page *page, int err, bool dirty)
 	if (!(v & BIT(Z_EROFS_ONLINEPAGE_EIO))) {
 		SetPageMappedToDisk(page);
 		SetPageUptodate(page);
-	}
+        }
 	unlock_page(page);
 }
 
