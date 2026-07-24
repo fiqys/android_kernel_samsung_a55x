@@ -22,3 +22,5 @@ config SND_SOC_SAMSUNG_SLIF_VERSION
 	  Version of Serial LIF IP.
 	  Value = 0x10000 * major + 0x100 * minor + rev.
 	  Ex. 1.00 rev0 => 0x10000, 1.01 rev1 => 0x10101
+
+
