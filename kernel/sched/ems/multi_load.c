@@ -798,7 +798,7 @@ u32 mlt_cpu_uarch(int cpu, enum mlt_uarch_cpu type, int size)
 	if (unlikely(!part))
 		return 0;
 
-	if (unlikely(type > MLT_UARCH_CPU_NUM))
+	if (unlikely((int)type >= (int)MLT_UARCH_CPU_NUM))
 		return 0;
 
 	if (unlikely(size < 0 || size > MLT_PERIOD_COUNT))
@@ -829,7 +829,7 @@ u64 mlt_cpu_uarch_snap(int cpu, enum mlt_uarch_cpu_raw type, int period)
 	if (unlikely(!part))
 		return 0;
 
-	if (unlikely((int)type > (int)MLT_UARCH_CPU_NUM))
+	if (unlikely((int)type >= (int)MLT_UARCH_CPU_NUM))
 		return 0;
 
 	snap = &per_cpu_ptr(pcpu_mlt, cpu)->uarch_snap[type];

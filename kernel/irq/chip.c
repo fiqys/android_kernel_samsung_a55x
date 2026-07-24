@@ -16,6 +16,8 @@
 #include <linux/irqdomain.h>
 #include <linux/wakeup_reason.h>
 
+#include <linux/sec_debug.h>
+
 #include <trace/events/irq.h>
 
 #include "internals.h"
@@ -930,6 +932,7 @@ void handle_percpu_devid_irq(struct irq_desc *desc)
 	struct irqaction *action = desc->action;
 	unsigned int irq = irq_desc_get_irq(desc);
 	irqreturn_t res;
+	unsigned int __maybe_unused pcount;
 
 	/*
 	 * PER CPU interrupts are not serialized. Do not touch
@@ -941,9 +944,11 @@ void handle_percpu_devid_irq(struct irq_desc *desc)
 		chip->irq_ack(&desc->irq_data);
 
 	if (likely(action)) {
+		secdbg_prep_preempt_count(PCHECK_IRQ_ACTION, pcount);
 		trace_irq_handler_entry(irq, action);
 		res = action->handler(irq, raw_cpu_ptr(action->percpu_dev_id));
 		trace_irq_handler_exit(irq, action, res);
+		secdbg_check_preempt_count(PCHECK_IRQ_ACTION, pcount, action->handler);
 	} else {
 		unsigned int cpu = smp_processor_id();
 		bool enabled = cpumask_test_cpu(cpu, desc->percpu_enabled);

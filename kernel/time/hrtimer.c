@@ -44,6 +44,7 @@
 #include <linux/compat.h>
 
 #include <linux/uaccess.h>
+#include <linux/sec_debug.h>
 
 #include <trace/events/timer.h>
 
@@ -1647,6 +1648,7 @@ static void __run_hrtimer(struct hrtimer_cpu_base *cpu_base,
 	enum hrtimer_restart (*fn)(struct hrtimer *);
 	bool expires_in_hardirq;
 	int restart;
+	unsigned int __maybe_unused pcount;
 
 	lockdep_assert_held(&cpu_base->lock);
 
@@ -1673,6 +1675,8 @@ static void __run_hrtimer(struct hrtimer_cpu_base *cpu_base,
 	if (IS_ENABLED(CONFIG_TIME_LOW_RES))
 		timer->is_rel = false;
 
+	secdbg_prep_preempt_count(PCHECK_HRTIMER_FN, pcount);
+
 	/*
 	 * The timer is marked as running in the CPU base, so it is
 	 * protected against migration to a different CPU even if the lock
@@ -1687,6 +1691,8 @@ static void __run_hrtimer(struct hrtimer_cpu_base *cpu_base,
 	lockdep_hrtimer_exit(expires_in_hardirq);
 	trace_hrtimer_expire_exit(timer);
 	raw_spin_lock_irq(&cpu_base->lock);
+
+	secdbg_check_preempt_count(PCHECK_HRTIMER_FN, pcount, fn);
 
 	/*
 	 * Note: We clear the running state after enqueue_hrtimer and

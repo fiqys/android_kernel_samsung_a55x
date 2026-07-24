@@ -17,6 +17,8 @@
 #include <linux/irqdomain.h>
 #include <linux/sysfs.h>
 
+#include <linux/sec_debug.h>
+
 #include "internals.h"
 
 /*
@@ -639,6 +641,7 @@ void irq_init_desc(unsigned int irq)
 int handle_irq_desc(struct irq_desc *desc)
 {
 	struct irq_data *data;
+	unsigned int __maybe_unused pcount;
 
 	if (!desc)
 		return -EINVAL;
@@ -647,7 +650,11 @@ int handle_irq_desc(struct irq_desc *desc)
 	if (WARN_ON_ONCE(!in_hardirq() && handle_enforce_irqctx(data)))
 		return -EPERM;
 
+	secdbg_prep_preempt_count(PCHECK_HANDLE_IRQ, pcount);
+
 	generic_handle_irq_desc(desc);
+
+	secdbg_check_preempt_count(PCHECK_HANDLE_IRQ, pcount, desc->handle_irq);
 	return 0;
 }
 
