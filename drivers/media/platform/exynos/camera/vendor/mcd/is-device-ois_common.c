@@ -35,29 +35,102 @@
 #include "is-sec-define.h"
 #include "is-device-ischain.h"
 #include "is-dt.h"
-#include "is-device-ois.h"
+#include "is-device-ois_common.h"
 #include "is-vendor-private.h"
+#include "is-vendor-ois-core.h"
 #ifdef CONFIG_AF_HOST_CONTROL
 #include "is-device-af.h"
 #endif
 #include <linux/pinctrl/pinctrl.h>
-#include "is-vendor-ois.h"
 #if defined(CONFIG_CAMERA_USE_INTERNAL_MCU)
 #include "is-vendor-ois-internal-mcu.h"
-#elif defined(CONFIG_CAMERA_USE_EXTERNAL_MCU)
-#include "is-vendor-ois-external-mcu.h"
 #elif defined(CONFIG_CAMERA_USE_AOIS)
-#include "is-vendor-aois.h"
 #include "is-interface-aois.h"
 #endif
 
 #define IS_OIS_DEV_NAME		"exynos-is-ois"
-#define OIS_I2C_RETRY_COUNT	2
 
 struct is_ois_info ois_minfo;
 struct is_ois_info ois_pinfo;
 struct is_ois_info ois_uinfo;
 struct is_ois_exif ois_exif_data;
+
+static struct ois_comm_ops *g_ois_comm_ops = NULL;
+
+int ois_read_u8(int cmd, u8 *data) {
+	int ret = 0;
+	if (g_ois_comm_ops && g_ois_comm_ops->read_u8)
+		ret = g_ois_comm_ops->read_u8(cmd, data);
+	else {
+		err_mcu("OIS read_u8 not available");
+		ret = -EINVAL;
+	}
+	return ret;
+};
+int ois_write_u8(int cmd, u8 data) {
+	int ret = 0;
+	if (g_ois_comm_ops && g_ois_comm_ops->write_u8)
+		ret = g_ois_comm_ops->write_u8(cmd, data);
+	else {
+		err_mcu("OIS write_u8 not available");
+		ret = -EINVAL;
+	}
+	return ret;
+}
+
+int ois_read_multi(int cmd, u8 *data, size_t size) {
+	int ret = 0;
+	if (g_ois_comm_ops && g_ois_comm_ops->read_multi)
+		ret = g_ois_comm_ops->read_multi(cmd, data, size);
+	else {
+		err_mcu("OIS read_multi not available");
+		ret = -EINVAL;
+	}
+
+	return ret;
+};
+int ois_write_multi(int cmd, u8 *data, size_t size) {
+	int ret = 0;
+	if (g_ois_comm_ops && g_ois_comm_ops->write_multi)
+		ret = g_ois_comm_ops->write_multi(cmd, data, size);
+	else {
+		err_mcu("OIS write_multi not available");
+		ret = -EINVAL;
+	}
+	return ret;
+}
+
+int ois_read_u16(int cmd, u8 *data) {
+	int ret = 0;
+	if (g_ois_comm_ops && g_ois_comm_ops->read_u16)
+		ret = g_ois_comm_ops->read_u16(cmd, data);
+	else {
+		err_mcu("OIS read_u16 not available");
+		ret = -EINVAL;
+	}
+	return ret;
+};
+int ois_write_u16(int cmd, u8 *data) {
+	int ret = 0;
+	if (g_ois_comm_ops && g_ois_comm_ops->write_u16)
+		ret = g_ois_comm_ops->write_u16(cmd, data);
+	else {
+		err_mcu("OIS write_u16 not available");
+		ret = -EINVAL;
+	}
+	return ret;
+}
+
+int set_ois_comm_ops(struct ois_comm_ops *ops)
+{
+	if (ops == NULL) {
+		err_mcu("ois_comm_ops is NULL");
+		return -EINVAL;
+	}
+
+	g_ois_comm_ops = ops;
+	return 0;
+}
 
 int is_ois_control_gpio(struct is_core *core, int position, int onoff)
 {
@@ -162,15 +235,33 @@ struct is_ois *is_ois_get_device(struct is_core *core)
 	struct is_device_sensor *device = NULL;
 
 	device = &core->sensor[0];
-	if (!device)
+	if (!device) {
+		err("device is NULL");
 		return NULL;
-	if (!device->mcu)
+	}
+	if (!device->mcu) {
+		err("device->mcu is NULL");
 		return NULL;
-
+	}
+	if (!device->mcu->ois) {
+		err("device->mcu->ois is NULL");
+		return NULL;
+	}
 	ois_device = device->mcu->ois;
 
 	return ois_device;
 }
+
+struct is_mcu *is_ois_get_mcu(struct is_core *core)
+{
+	struct is_vendor_private *vendor_priv = core->vendor.private_data;
+	u32 sensor_idx = vendor_priv->mcu_sensor_index;
+
+	if (core->sensor[sensor_idx].mcu != NULL)
+		return core->sensor[sensor_idx].mcu;
+
+	return NULL;
+};
 
 bool is_ois_offset_test(struct is_core *core, long *raw_data_x, long *raw_data_y, long *raw_data_z)
 {
@@ -292,6 +383,20 @@ bool is_ois_check_fw(struct is_core *core)
 	ret = CALL_OISOPS(ois_device, ois_check_fw, core);
 
 	return ret;
+}
+
+void is_ois_fw_update(struct is_core *core)
+{
+	struct is_ois *ois_device = NULL;
+
+	ois_device = is_ois_get_device(core);
+
+	is_ois_gpio_on(core);
+	msleep(30);
+	CALL_OISOPS(ois_device, ois_fw_update, core);
+	is_ois_gpio_off(core);
+
+	return;
 }
 
 void is_ois_get_hall_pos(struct is_core *core, u16 *targetPos, u16 *hallPos)

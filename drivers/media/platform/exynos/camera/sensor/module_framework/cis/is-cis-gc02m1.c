@@ -40,6 +40,9 @@
 #include "is-helper-ixc.h"
 
 #define SENSOR_NAME "GC02M1"
+#define POLL_TIME_US (1000)
+
+static u16 sensor_gc02m1_fcount;
 
 static bool sensor_gc02m1_check_master_stream_off(struct is_core *core)
 {
@@ -172,6 +175,31 @@ u32 sensor_gc02m1_cis_calc_again_code(u32 permile)
 	}
 
 	return ret;
+}
+
+u16 sensor_gc02m1_cis_get_framecount(struct is_cis *cis)
+{
+	struct i2c_client *client;
+	u16 fcount = 0xffff;
+	int ret = 0;
+	u8 sensor_fcount_msb = 0, sensor_fcount_lsb = 0;
+
+	client = cis->client;
+	IXC_MUTEX_LOCK(cis->ixc_lock);
+	ret = cis->ixc_ops->addr8_write8(client, 0xfe, 0x00);
+	ret |= cis->ixc_ops->addr8_read8(client, 0xe1, &sensor_fcount_msb);
+	ret |= cis->ixc_ops->addr8_read8(client, 0xe2, &sensor_fcount_lsb);
+	if (ret < 0) {
+		err("i2c transfer fail addr(%x), val(%x), ret = %d\n", 0xe2, sensor_fcount_lsb, ret);
+		goto p_err_i2c;
+	} else {
+		fcount = (sensor_fcount_msb << 8) | sensor_fcount_lsb;
+	}
+
+p_err_i2c:
+	IXC_MUTEX_UNLOCK(cis->ixc_lock);
+
+	return fcount;
 }
 
 int sensor_gc02m1_set_flip_register(struct v4l2_subdev *subdev)
@@ -555,9 +583,6 @@ int sensor_gc02m1_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 
 	info("[%s] sensor mode(%d)\n", __func__, mode);
 
-	/* This delay restrains critical issues. If entry time issue comes up, this delay should be removed */
-	msleep(50);
-
 	mode_info = cis->sensor_info->mode_infos[mode];
 
 	ret = sensor_cis_write_registers_locked(subdev, mode_info->setfile);
@@ -623,10 +648,7 @@ int sensor_gc02m1_cis_stream_on(struct v4l2_subdev *subdev)
 	dbg_sensor(1, "[MOD:D:%d] %s\n", cis->id, __func__);
 
 	/* Sensor Dual sync on/off */
-	if (single_mode) {
-		/* Delay for single mode */
-		msleep(50);
-	} else {
+	if (single_mode == false) {
 		info("[%s] dual sync slave mode\n", __func__);
 		ret = sensor_cis_write_registers_locked(subdev, priv->fsync_slave);
 		if (ret < 0)
@@ -646,18 +668,12 @@ int sensor_gc02m1_cis_stream_on(struct v4l2_subdev *subdev)
 		goto p_err;
 	}
 
-	if (single_mode) {
-		/* Delay for single mode */
-		msleep(50);
-	}
-
 	cis_data->stream_on = true;
-
+	sensor_gc02m1_fcount = 0;
 	info("%s done, (single_mode : %d)\n", __func__, single_mode);
+
 	if (IS_ENABLED(DEBUG_SENSOR_TIME))
 		dbg_sensor(1, "[%s] time %lldus", __func__, PABLO_KTIME_US_DELTA_NOW(st));
-
-	return ret;
 
 p_err:
 	return ret;
@@ -682,14 +698,13 @@ int sensor_gc02m1_cis_stream_off(struct v4l2_subdev *subdev)
 	if (unlikely(!client)) {
 		err("client is NULL");
 		ret = -EINVAL;
-		return ret;
 	}
 
 	cis_data = cis->cis_data;
 
 	dbg_sensor(1, "[MOD:D:%d] %s\n", cis->id, __func__);
 
-	IXC_MUTEX_LOCK(cis->ixc_lock);
+	sensor_gc02m1_fcount = sensor_gc02m1_cis_get_framecount(cis);
 
 	/* Page Selection */
 	ret = cis->ixc_ops->addr8_write8(client, 0xfe, 0x00);
@@ -705,7 +720,8 @@ int sensor_gc02m1_cis_stream_off(struct v4l2_subdev *subdev)
 
 	cis_data->stream_on = false;
 
-	info("%s done\n", __func__);
+	info("%s done, frame_count(%d) cur_frame_ms_time(%d)\n",
+		__func__, sensor_gc02m1_fcount, cis_data->cur_frame_us_time/1000);
 
 	if (IS_ENABLED(DEBUG_SENSOR_TIME))
 		dbg_sensor(1, "[%s] time %lldus", __func__, PABLO_KTIME_US_DELTA_NOW(st));
@@ -1011,57 +1027,41 @@ int sensor_gc02m1_cis_wait_streamoff(struct v4l2_subdev *subdev)
 {
 	int ret = 0;
 	u32 poll_time_ms = 0;
-	struct is_cis *cis;
+	struct is_cis *cis = sensor_cis_get_cis(subdev);
 	struct i2c_client *client;
 	cis_shared_data *cis_data;
-	u8 sensor_fcount_msb = 0, sensor_fcount_lsb = 0;
 	u16 sensor_fcount = 0;
-
-	FIMC_BUG(!subdev);
-
-	cis = (struct is_cis *)v4l2_get_subdevdata(subdev);
-	if (unlikely(!cis)) {
-		err("cis is NULL");
-		ret = -EINVAL;
-		goto p_err;
-	}
+	int sensor_delay = 0;
 
 	cis_data = cis->cis_data;
-	if (unlikely(!cis_data)) {
-		err("cis_data is NULL");
-		ret = -EINVAL;
-		goto p_err;
-	}
-
 	client = cis->client;
-	if (unlikely(!client)) {
-		err("client is NULL");
-		ret = -EINVAL;
-		goto p_err;
+
+	/*
+	 * sensor frame counter (0xE1, 0xE2)
+	 * stream on (0x0000 ~ 0xFFFF), stream off (0x0000)
+	 */
+	if (sensor_gc02m1_fcount == 0) {
+		sensor_delay = cis_data->cur_frame_us_time/1000;
+
+		if (sensor_delay == 0)
+			sensor_delay = 33; /* 30 fps */
+		else if (sensor_delay > 125)
+			sensor_delay = 125; /* 8 fps */
+
+		msleep(sensor_delay);
+		poll_time_ms += sensor_delay;
+		info("%s: add 1 frame delay %d ms\n", __func__, sensor_delay);
 	}
 
-	/* Checking stream off */
 	do {
 		/* Page Selection */
-		IXC_MUTEX_LOCK(cis->ixc_lock);
-		cis->ixc_ops->addr8_write8(client, 0xfe, 0x00);
-		ret = cis->ixc_ops->addr8_read8(client, 0xe1, &sensor_fcount_msb);
-		if (ret < 0) {
-			err("i2c transfer fail addr(%x), val(%x), ret = %d\n", 0xe1, sensor_fcount_msb, ret);
-			goto p_err_i2c;
-		}
-		ret = cis->ixc_ops->addr8_read8(client, 0xe2, &sensor_fcount_lsb);
-		if (ret < 0) {
-			err("i2c transfer fail addr(%x), val(%x), ret = %d\n", 0xe2, sensor_fcount_lsb, ret);
-			goto p_err_i2c;
-		}
-		IXC_MUTEX_UNLOCK(cis->ixc_lock);
-		sensor_fcount = (sensor_fcount_msb << 8) | sensor_fcount_lsb;
+
+		sensor_fcount = sensor_gc02m1_cis_get_framecount(cis);
 
 		if (sensor_fcount == 0) /* stream off done */
 			break;
 
-		usleep_range(POLL_TIME_MS, POLL_TIME_MS);
+		usleep_range(POLL_TIME_US, POLL_TIME_US + 10);
 		poll_time_ms += POLL_TIME_MS;
 
 		dbg_sensor(1, "[MOD:D:%d] %s, sensor_fcount(%d), (poll_time_ms(%d) < STREAM_OFF_POLL_TIME_MS(%d))\n",
@@ -1073,90 +1073,42 @@ int sensor_gc02m1_cis_wait_streamoff(struct v4l2_subdev *subdev)
 	else
 		warn("%s: finished : polling timeout occured after %d ms\n", __func__, poll_time_ms);
 
-p_err:
 	return ret;
 
-p_err_i2c:
-	IXC_MUTEX_UNLOCK(cis->ixc_lock);
-	return ret;
 }
 
 int sensor_gc02m1_cis_wait_streamon(struct v4l2_subdev *subdev)
 {
 	int ret = 0;
 	u32 poll_time_ms = 0;
-	struct is_cis *cis;
+	struct is_cis *cis = sensor_cis_get_cis(subdev);
 	struct i2c_client *client;
 	cis_shared_data *cis_data;
-	u8 sensor_fcount_msb = 0, sensor_fcount_lsb = 0;
-	u16 cur_frame_value = 0;
-	u16 next_frame_value = 0;
-
-	FIMC_BUG(!subdev);
-
-	cis = (struct is_cis *)v4l2_get_subdevdata(subdev);
-	if (unlikely(!cis)) {
-		err("cis is NULL");
-		ret = -EINVAL;
-		goto p_err;
-	}
+	u16 cur_frame_count = 0;
+	u16 next_frame_count = 0;
 
 	cis_data = cis->cis_data;
-	if (unlikely(!cis_data)) {
-		err("cis_data is NULL");
-		ret = -EINVAL;
-		goto p_err;
-	}
-
 	client = cis->client;
-	if (unlikely(!client)) {
-		err("client is NULL");
-		ret = -EINVAL;
-		goto p_err;
-	}
 
 	/* Page Selection */
-	IXC_MUTEX_LOCK(cis->ixc_lock);
-	cis->ixc_ops->addr8_write8(client, 0xfe, 0x00);
-	ret = cis->ixc_ops->addr8_read8(client, 0xe1, &sensor_fcount_msb);
-	if (ret < 0) {
-		err("i2c transfer fail addr(%x), val(%x), ret = %d\n", 0xe1, sensor_fcount_msb, ret);
-		goto p_err_i2c;
-	}
-	ret = cis->ixc_ops->addr8_read8(client, 0xe2, &sensor_fcount_lsb);
-	if (ret < 0) {
-		err("i2c transfer fail addr(%x), val(%x), ret = %d\n", 0xe2, sensor_fcount_lsb, ret);
-		goto p_err_i2c;
-	}
-	IXC_MUTEX_UNLOCK(cis->ixc_lock);
-	cur_frame_value = (sensor_fcount_msb << 8) | sensor_fcount_lsb;
+
+	cur_frame_count = sensor_gc02m1_cis_get_framecount(cis);
 
 	/* Checking stream on */
 	do {
 		/* Page Selection */
-		IXC_MUTEX_LOCK(cis->ixc_lock);
-		cis->ixc_ops->addr8_write8(client, 0xfe, 0x00);
-		ret = cis->ixc_ops->addr8_read8(client, 0xe1, &sensor_fcount_msb);
-		if (ret < 0) {
-			err("i2c transfer fail addr(%x), val(%x), ret = %d\n", 0xe1, sensor_fcount_msb, ret);
-			goto p_err_i2c;
-		}
-		ret = cis->ixc_ops->addr8_read8(client, 0xe2, &sensor_fcount_lsb);
-		if (ret < 0) {
-			err("i2c transfer fail addr(%x), val(%x), ret = %d\n", 0xe2, sensor_fcount_lsb, ret);
-			goto p_err_i2c;
-		}
-		IXC_MUTEX_UNLOCK(cis->ixc_lock);
-		next_frame_value = (sensor_fcount_msb << 8) | sensor_fcount_lsb;
-		if (next_frame_value != cur_frame_value)
+
+		next_frame_count = sensor_gc02m1_cis_get_framecount(cis);
+
+		if (cur_frame_count != next_frame_count)
 			break;
 
-		cur_frame_value = next_frame_value;
+		cur_frame_count = next_frame_count;
 
-		usleep_range(POLL_TIME_MS, POLL_TIME_MS);
+		usleep_range(POLL_TIME_US, POLL_TIME_US + 10);
 		poll_time_ms += POLL_TIME_MS;
 		dbg_sensor(1, "[MOD:D:%d] %s, sensor_fcount(%d), (poll_time_ms(%d) < STREAM_ON_POLL_TIME_MS(%d))\n",
-				cis->id, __func__, cur_frame_value, poll_time_ms, STREAM_ON_POLL_TIME_MS);
+				cis->id, __func__, cur_frame_count, poll_time_ms, STREAM_ON_POLL_TIME_MS);
 	} while (poll_time_ms < STREAM_ON_POLL_TIME_MS);
 
 	if (poll_time_ms < STREAM_ON_POLL_TIME_MS)
@@ -1164,11 +1116,6 @@ int sensor_gc02m1_cis_wait_streamon(struct v4l2_subdev *subdev)
 	else
 		warn("%s: finished : polling timeout occured after %d ms\n", __func__, poll_time_ms);
 
-p_err:
-	return ret;
-
-p_err_i2c:
-	IXC_MUTEX_UNLOCK(cis->ixc_lock);
 	return ret;
 }
 

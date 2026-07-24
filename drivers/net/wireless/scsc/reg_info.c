@@ -28,13 +28,13 @@ void slsi_regd_use_world_domain(struct slsi_dev *sdev)
 		/* Channel 14 NO_IR and NO_OFDM */
 		REG_RULE(2484 - 10, 2484 + 10, 20, 0, 20, NL80211_RRF_NO_IR | NL80211_RRF_NO_OFDM),
 		/* Channel 36 - 48 */
-		REG_RULE(5180 - 10, 5240 + 10, 80, 0, 20, 0),
+		REG_RULE(5180 - 10, 5240 + 10, 80, 0, 20, NL80211_RRF_NO_IR | NL80211_RRF_AUTO_BW),
 		/* Channel 52 - 64 */
-		REG_RULE(5260 - 10, 5320 + 10, 80, 0, 20, NL80211_RRF_DFS),
+		REG_RULE(5260 - 10, 5320 + 10, 80, 0, 20, NL80211_RRF_NO_IR | NL80211_RRF_DFS | NL80211_RRF_AUTO_BW),
 		/* Channel 100 - 144 */
-		REG_RULE(5500 - 10, 5720 + 10, 80, 0, 20, NL80211_RRF_DFS),
+		REG_RULE(5500 - 10, 5720 + 10, 160, 0, 20, NL80211_RRF_NO_IR | NL80211_RRF_DFS),
 		/* Channel 149 - 165 */
-		REG_RULE(5745 - 10, 5825 + 10, 80, 0, 20, 0),
+		REG_RULE(5745 - 10, 5825 + 10, 80, 0, 20, NL80211_RRF_NO_IR),
 	};
 	struct ieee80211_reg_rule  reg_rules_monitor[] = {
 		REG_RULE(2402, 2482,  40, 0, 20, 0),

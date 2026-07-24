@@ -307,7 +307,7 @@ static unsigned long pablo_vmap(unsigned long addr, unsigned int size)
 	struct page **pages;
 	void *vaddr;
 
-	pages = kmalloc_array(npages, sizeof(struct page *), GFP_ATOMIC);
+	pages = pablo_malloc_array(npages, sizeof(struct page *), GFP_ATOMIC);
 	if (!pages)
 		return 0;
 
@@ -317,7 +317,7 @@ static unsigned long pablo_vmap(unsigned long addr, unsigned int size)
 	}
 
 	vaddr = rscmgr_sys_ops.vmap(pages, npages, VM_MAP, prot);
-	kfree(pages);
+	pablo_free(pages);
 
 	return (unsigned long)vaddr;
 }

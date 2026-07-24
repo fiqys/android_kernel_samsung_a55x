@@ -386,17 +386,17 @@ static int flash_s2mf301_probe(struct device *dev, struct i2c_client *client)
 			goto p_err;
 		}
 	}
-	flash = kzalloc(sizeof(struct is_flash) * sensor_id_len, GFP_KERNEL);
+	flash = pablo_zalloc(sizeof(struct is_flash) * sensor_id_len, GFP_KERNEL);
 	if (!flash) {
 		err("flash is NULL");
 		ret = -ENOMEM;
 		goto p_err;
 	}
-	subdev_flash = kzalloc(sizeof(struct v4l2_subdev) * sensor_id_len, GFP_KERNEL);
+	subdev_flash = pablo_zalloc(sizeof(struct v4l2_subdev) * sensor_id_len, GFP_KERNEL);
 	if (!subdev_flash) {
 		err("subdev_flash is NULL");
 		ret = -ENOMEM;
-		kfree(flash);
+		pablo_free(flash);
 		goto p_err;
 	}
 	for (i = 0; i < sensor_id_len; i++) {

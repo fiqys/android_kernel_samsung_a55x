@@ -3060,6 +3060,7 @@ void slsi_rx_synchronised_ind(struct slsi_dev *sdev, struct net_device *dev, str
 									      (rsn[pos + 4]));
 				} else {
 					SLSI_NET_ERR(dev, "SAE AKM Suite(00-0F-AC:8) is NOT in Probe Response\n");
+					slsi_wake_unlock(&ndev_vif->wlan_wl_sae);
 					goto exit;
 				}
 				ndev_vif->sta.use_set_pmksa = 1;
@@ -4274,6 +4275,8 @@ void slsi_rx_connect_ind(struct slsi_dev *sdev, struct net_device *dev, struct s
 	}
 
 exit_with_lock:
+	if (slsi_wake_lock_active(&ndev_vif->wlan_wl_sae))
+		slsi_wake_unlock(&ndev_vif->wlan_wl_sae);
 	SLSI_MUTEX_UNLOCK(ndev_vif->vif_mutex);
 	kfree_skb(skb);
 }

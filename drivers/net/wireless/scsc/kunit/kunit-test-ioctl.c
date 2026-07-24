@@ -2090,7 +2090,12 @@ static void test_ioctl_slsi_set_fcc_channel(struct kunit *test)
 	struct netdev_vif *ndev_vif = netdev_priv(dev);
 	struct slsi_dev *sdev = ndev_vif->sdev;
 
-	KUNIT_EXPECT_EQ(test, -EINVAL, slsi_set_fcc_channel(dev, cbuf("SET_FCC_CHANNEL -"), cbuf_size()));
+	memset(&sdev->device_config.domain_info, 0, sizeof(struct slsi_802_11d_reg_domain));
+	sdev->device_config.domain_info.regdomain = kunit_kzalloc(test, sizeof(struct ieee80211_regdomain) +
+								  sizeof(struct ieee80211_reg_rule), GFP_KERNEL);
+	sdev->device_config.domain_info.regdomain->alpha2[0] = 'K';
+	sdev->device_config.domain_info.regdomain->alpha2[1] = 'R';
+
 	KUNIT_EXPECT_EQ(test, 0, slsi_set_fcc_channel(dev, cbuf("SET_FCC_CHANNEL 2"), cbuf_size()));
 
 	sdev->nan_enabled = 0;
@@ -2099,6 +2104,11 @@ static void test_ioctl_slsi_set_fcc_channel(struct kunit *test)
 
 	sdev->nan_enabled = 1;
 	KUNIT_EXPECT_EQ(test, 0, slsi_set_fcc_channel(dev, cbuf("SET_FCC_CHANNEL -1"), cbuf_size()));
+
+	sdev->device_config.domain_info.regdomain->alpha2[0] = 'C';
+	sdev->device_config.domain_info.regdomain->alpha2[1] = 'A';
+
+	KUNIT_EXPECT_EQ(test, 0, slsi_set_fcc_channel(dev, cbuf("SET_FCC_CHANNEL 3"), cbuf_size()));
 }
 
 static void test_ioctl_slsi_fake_mac_write(struct kunit *test)

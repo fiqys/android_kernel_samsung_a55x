@@ -170,8 +170,6 @@ void ufs_perf_resume(void *data)
 	struct ufs_perf *perf = (struct ufs_perf *)data;
 	int index;
 
-	perf->perf_suspend = PERF_NORMAL;
-
 	for (index = 0; index < __UPDATE_MAX; index++) {
 		if (!(BIT(index) & perf->stat_bits))
 			continue;
@@ -333,6 +331,10 @@ static int exynos_ufs_perf_pm_notifier(struct notifier_block *nb,
 	case PM_SUSPEND_PREPARE:
 		pr_info("%s: suspend prepare\n", __func__);
 		perf->perf_suspend = PERF_SUSPEND_PREPARE;
+		break;
+	case PM_POST_SUSPEND:
+		pr_info("%s: post suspend\n", __func__);
+		perf->perf_suspend = PERF_NORMAL;
 		break;
 	}
 

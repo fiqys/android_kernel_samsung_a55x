@@ -413,6 +413,9 @@ static void test_slsi_cdev_ioctl(struct kunit *test)
 	KUNIT_EXPECT_EQ(test, -EFAULT, slsi_cdev_ioctl(file, UNIFI_SET_UDI_LOG_CONFIG, NULL));
 	KUNIT_EXPECT_EQ(test, 0, slsi_cdev_ioctl(file, UNIFI_SET_UDI_LOG_CONFIG, arg));
 
+	cdev_client->log_enabled = 0;
+	KUNIT_EXPECT_EQ(test, -EINVAL, slsi_cdev_ioctl(file, UNIFI_SET_UDI_LOG_MASK, arg));
+	cdev_client->log_enabled = 1;
 	KUNIT_EXPECT_EQ(test, 0, slsi_cdev_ioctl(file, UNIFI_SET_UDI_LOG_MASK, arg));
 
 	KUNIT_EXPECT_EQ(test, -EFAULT, slsi_cdev_ioctl(file, UNIFI_SET_MIB, arg));

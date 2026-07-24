@@ -18,7 +18,10 @@
 #include "../host/xhci.h"
 #include "../../../sound/usb/exynos_usb_audio.h"
 
+#if IS_ENABLED(CONFIG_SOC_S5E8845)
 extern struct dwc3_exynos *g_dwc3_exynos;
+#endif
+
 #if IS_ENABLED(CONFIG_SND_EXYNOS_USB_AUDIO_MODULE)
 extern struct hcd_hw_info *g_hwinfo;
 #endif
@@ -61,6 +64,61 @@ static int exit_dwc3_gadget_ep_queue(struct kretprobe_instance *ri,
 	return 0;
 }
 
+static int entry_dwc3_gadget_pullup(struct kretprobe_instance *ri,
+				   struct pt_regs *regs)
+{
+	struct usb_gadget *g = (struct usb_gadget *)regs->regs[0];
+	struct dwc3	*dwc = gadget_to_dwc(g);
+	int is_on = (int)regs->regs[1];
+
+	pr_info("%s on=%d, pullups_connected=%d\n", __func__, is_on, dwc->pullups_connected);
+
+#if IS_ENABLED(CONFIG_SOC_S5E8845)
+	/*
+	 * Avoid unnecessary DWC3 core wake-ups If the Exynos configuration
+	 * is not completed.
+	 */
+	if (is_on && g_dwc3_exynos && !g_dwc3_exynos->vbus_state) {
+		pr_info("%s exynos setup is not done: vbus_state =%d!!\n",
+				__func__, g_dwc3_exynos->vbus_state);
+
+			regs->regs[1] = 0;
+			g_dwc3_exynos->force_pullup = true;
+	}
+#endif	/* CONFIG_SOC_S5E8845 */
+
+	return 0;
+}
+
+static int exit_dwc3_gadget_pullup(struct kretprobe_instance *ri,
+				   struct pt_regs *regs)
+{
+	int ret = (int)regs->regs[0];
+
+	pr_info("%s--- ret = %d\n", __func__, ret);
+
+	return 0;
+}
+
+#if IS_ENABLED(CONFIG_SOC_S5E8845)
+static int entry_usb_gadget_connect_locked(struct kretprobe_instance *ri,
+					struct pt_regs *regs)
+{
+	g_dwc3_exynos->pullup_state = 1;
+	pr_info("%s enter !!\n", __func__);
+
+	return 0;
+}
+
+static int exit_usb_gadget_connect_locked(struct kretprobe_instance *ri,
+					struct pt_regs *regs)
+{
+	g_dwc3_exynos->pullup_state = 0;
+	pr_info("%s exit !!\n", __func__);
+
+	return 0;
+}
+#endif
 
 #define ENTRY_EXIT(name) {\
 	.handler = exit_##name,\
@@ -78,7 +136,11 @@ static int exit_dwc3_gadget_ep_queue(struct kretprobe_instance *ri,
 }
 
 static struct kretprobe dwc3_kret_probes[] = {
-	ENTRY_EXIT(dwc3_gadget_ep_queue)
+	ENTRY_EXIT(dwc3_gadget_ep_queue),
+	ENTRY_EXIT(dwc3_gadget_pullup),
+#if IS_ENABLED(CONFIG_SOC_S5E8845)
+	ENTRY_EXIT(usb_gadget_connect_locked),
+#endif
 };
 
 int dwc3_kretprobe_init(void)

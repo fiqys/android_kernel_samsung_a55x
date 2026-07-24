@@ -252,8 +252,10 @@ static int hdr_import_buffer(struct exynos_hdr *hdr,
 				IOSYS_MAP_INIT_VADDR(hdr->vaddr);
 
 			dma_buf_vunmap(hdr->dma_buf, &old_map);
+			hdr->vaddr = NULL;
 		}
 		dma_buf_put(hdr->dma_buf);
+		hdr->dma_buf = NULL;
 	}
 
 	ret = dma_buf_vmap(buf, &map);
@@ -384,6 +386,7 @@ static int hdr_prepare_buffer(struct exynos_hdr *hdr,
 	const struct hdr_coef_header *coef_h;
 	void *ctx;
 	int ret;
+	unsigned int total_bytesize;
 
 	ret = hdr_import_buffer(hdr, exynos_plane_state);
 	if (ret < 0)
@@ -395,10 +398,11 @@ static int hdr_prepare_buffer(struct exynos_hdr *hdr,
 		return -1;
 	}
 
-	if (!coef_h->total_bytesize
-		|| (coef_h->total_bytesize < sizeof(*coef_h))
-		|| (coef_h->total_bytesize > ret)) {
-		hdr_err(hdr, "invalid size: total %d/%d\n", coef_h->total_bytesize, ret);
+	total_bytesize = coef_h->total_bytesize;
+	if (!total_bytesize
+		|| (total_bytesize < sizeof(*coef_h))
+		|| (total_bytesize > ret)) {
+		hdr_err(hdr, "invalid size: total %d/%d\n", total_bytesize, ret);
 		return -1;
 	}
 
@@ -408,7 +412,7 @@ static int hdr_prepare_buffer(struct exynos_hdr *hdr,
 		return -1;
 	}
 
-	memcpy(ctx, (void *)hdr->vaddr, coef_h->total_bytesize);
+	memcpy(ctx, (void *)hdr->vaddr, total_bytesize);
 	exynos_plane_state->hdr_en = (coef_h->sfr_con.unpack.mod_en != 0);
 	exynos_plane_state->hdr_ctx = ctx;
 

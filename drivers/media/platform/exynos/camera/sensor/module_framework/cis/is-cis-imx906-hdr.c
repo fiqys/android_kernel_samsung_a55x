@@ -1056,10 +1056,10 @@ int cis_imx906_probe_i2c(struct i2c_client *client,
 	cis->use_total_gain = false;
 	cis->reg_addr = &sensor_imx906_reg_addr;
 
-	cis->priv_runtime = kzalloc(sizeof(struct sensor_imx906_private_runtime), GFP_KERNEL);
+	cis->priv_runtime = pablo_zalloc(sizeof(struct sensor_imx906_private_runtime), GFP_KERNEL);
 	if (!cis->priv_runtime) {
-		kfree(cis->cis_data);
-		kfree(cis->subdev);
+		pablo_free(cis->cis_data);
+		pablo_free(cis->subdev);
 		probe_err("cis->priv_runtime is NULL");
 		return -ENOMEM;
 	}

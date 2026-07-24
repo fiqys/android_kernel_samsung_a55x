@@ -281,7 +281,7 @@
 #define SECURE_CAMERA_HEAP_ID		(11)
 #define SECURE_CAMERA_MEM_SHARE		1
 #define SECURE_CAMERA_MEM_ADDR		(0x96000000)	/* secure_camera_heap */
-#define SECURE_CAMERA_MEM_SIZE		(0x04000000)	/* 0x03DCD200 -> 4MB aligned for CMA */
+#define SECURE_CAMERA_MEM_SIZE		(0x07400000)	/* 0x03DCD200 -> 4MB aligned for CMA */
 #define NON_SECURE_CAMERA_MEM_ADDR	(0x0)	/* camera_heap */
 #define NON_SECURE_CAMERA_MEM_SIZE	(0x0)
 #define ION_EXYNOS_FLAG_PROTECTED	BIT(16)

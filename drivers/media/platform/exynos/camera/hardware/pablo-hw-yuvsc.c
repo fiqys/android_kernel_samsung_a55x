@@ -297,7 +297,7 @@ static int pablo_hw_yuvsc_open(struct is_hw_ip *hw_ip, u32 instance)
 
 	frame_manager_probe(hw_ip->framemgr, "HWYUVSC");
 
-	hw_ip->priv_info = vzalloc(sizeof(struct pablo_hw_yuvsc));
+	hw_ip->priv_info = pablo_zalloc(sizeof(struct pablo_hw_yuvsc), GFP_KERNEL);
 	if (!hw_ip->priv_info) {
 		mserr_hw("Failed to alloc pablo_hw_yuvsc", instance, hw_ip);
 		return -ENOMEM;
@@ -352,7 +352,7 @@ static int pablo_hw_yuvsc_close(struct is_hw_ip *hw_ip, u32 instance)
 	CALL_I_SUBDEV_OPS(pis, free, pis);
 
 	if (hw_ip->priv_info) {
-		vfree(hw_ip->priv_info);
+		pablo_free(hw_ip->priv_info);
 		hw_ip->priv_info = NULL;
 	}
 

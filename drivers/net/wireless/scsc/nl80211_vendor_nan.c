@@ -406,8 +406,9 @@ static void slsi_add_nan_discovery_info(struct netdev_vif *ndev_vif, u8 *addr, u
 	ndev_vif->nan.disc_info = discoveryinfo;
 }
 
-static void slsi_vendor_nan_command_reply(struct wiphy *wiphy, u32 status, u32 error, u32 response_type,
-					  u16 id, struct slsi_hal_nan_capabilities *capabilities, u16 req_id, struct netdev_vif *ndev_vif)
+static int slsi_vendor_nan_command_reply(struct wiphy *wiphy, u32 status, u32 error, u32 response_type,
+					 u16 id, struct slsi_hal_nan_capabilities *capabilities, u16 req_id,
+					 struct netdev_vif *ndev_vif)
 {
 	struct sk_buff  *reply;
 	u8              mac_addr[ETH_ALEN] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
@@ -415,8 +416,8 @@ static void slsi_vendor_nan_command_reply(struct wiphy *wiphy, u32 status, u32 e
 
 	reply = cfg80211_vendor_cmd_alloc_reply_skb(wiphy, NLMSG_DEFAULT_SIZE);
 	if (!reply) {
-		SLSI_WARN_NODEV("SKB alloc failed for vendor_cmd reply\n");
-		return;
+		SLSI_WARN_NODEV("SKB alloc failed for vendor_cmd reply, error %d to ENOMEM\n", error);
+		return -ENOMEM;
 	}
 
 	ret |= nla_put_u32(reply, NAN_REPLY_ATTR_STATUS_TYPE, status);
@@ -465,9 +466,16 @@ static void slsi_vendor_nan_command_reply(struct wiphy *wiphy, u32 status, u32 e
 	if (ret) {
 		SLSI_ERR_NODEV("Error in nla_put:%x\n", ret);
 		kfree_skb(reply);
-	} else if (cfg80211_vendor_cmd_reply(reply)) {
-		SLSI_ERR_NODEV("FAILED to reply nan coammnd. response_type:%d\n", response_type);
+	} else {
+		ret = cfg80211_vendor_cmd_reply(reply);
+		if (ret)
+			SLSI_ERR_NODEV("FAILED to reply nan coammnd. response_type:%d, error %d to %d\n",
+				       response_type, error, ret);
+		else
+			ret = error;
 	}
+
+	return ret;
 }
 
 static int slsi_nan_get_sdea_params_nl(struct slsi_dev *sdev, struct slsi_nan_sdea_ctrl_params *sdea_params,
@@ -1211,6 +1219,7 @@ int slsi_nan_publish_cancel(struct wiphy *wiphy, struct wireless_dev *wdev,
 
 	SLSI_MUTEX_LOCK(ndev_vif->vif_mutex);
 	if (!ndev_vif->activated) {
+		SLSI_WARN(sdev, "NAN vif not activated\n");
 		reply_status = SLSI_HAL_NAN_STATUS_NAN_NOT_ALLOWED;
 		ret = WIFI_HAL_ERROR_NOT_AVAILABLE;
 		goto exit_with_lock;
@@ -1233,7 +1242,8 @@ int slsi_nan_publish_cancel(struct wiphy *wiphy, struct wireless_dev *wdev,
 exit_with_lock:
 	SLSI_MUTEX_UNLOCK(ndev_vif->vif_mutex);
 exit:
-	slsi_vendor_nan_command_reply(wiphy, reply_status, ret, NAN_RESPONSE_PUBLISH_CANCEL, publish_id, NULL, transaction_id, ndev_vif);
+	ret = slsi_vendor_nan_command_reply(wiphy, reply_status, ret, NAN_RESPONSE_PUBLISH_CANCEL,
+					    publish_id, NULL, transaction_id, ndev_vif);
 	return ret;
 }
 
@@ -1518,8 +1528,8 @@ int slsi_nan_subscribe_cancel(struct wiphy *wiphy, struct wireless_dev *wdev, co
 	}
 	SLSI_MUTEX_UNLOCK(ndev_vif->vif_mutex);
 exit:
-	slsi_vendor_nan_command_reply(wiphy, reply_status, ret, NAN_RESPONSE_SUBSCRIBE_CANCEL, subscribe_id, NULL,
-				      transaction_id, ndev_vif);
+	ret = slsi_vendor_nan_command_reply(wiphy, reply_status, ret, NAN_RESPONSE_SUBSCRIBE_CANCEL,
+					    subscribe_id, NULL, transaction_id, ndev_vif);
 	return ret;
 }
 

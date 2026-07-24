@@ -10,8 +10,6 @@
  * (at your option) any later version.
  */
 
-#include <linux/vmalloc.h>
-
 #include "mfc_dec_v4l2.h"
 #include "mfc_dec_internal.h"
 #include "mfc_rm.h"
@@ -690,6 +688,7 @@ static int mfc_dec_g_fmt_vid_cap_mplane(struct file *file, void *priv,
 		mfc_debug(2, "clear WAIT_G_FMT %d\n", ctx->wait_state);
 		MFC_TRACE_CTX("** DEC clear WAIT_G_FMT(wait_state %d)\n", ctx->wait_state);
 	}
+	ctx->handle_drc_multi_mode = 0;
 	mutex_unlock(&ctx->drc_wait_mutex);
 
 	mfc_ctx_debug_leave();
@@ -909,6 +908,10 @@ static int mfc_dec_reqbufs(struct file *file, void *priv,
 						mfc_llc_flush(core);
 
 					core_ctx = core->core_ctx[ctx->num];
+					if (!core_ctx) {
+						mfc_ctx_err("no mfc context to run\n");
+						continue;
+					}
 					mfc_release_codec_buffers(core_ctx);
 				}
 			}
@@ -960,6 +963,10 @@ static int mfc_dec_reqbufs(struct file *file, void *priv,
 
 				core = dev->core[ctx->op_core_num[i]];
 				core_ctx = core->core_ctx[ctx->num];
+				if (!core_ctx) {
+					mfc_ctx_err("no mfc context to run\n");
+					continue;
+				}
 				ret = mfc_alloc_codec_buffers(core_ctx);
 				if (ret) {
 					mfc_err("Failed to allocate decoding buffers\n");
@@ -1684,6 +1691,10 @@ static int mfc_dec_g_selection(struct file *file, void *priv,
 					s->r.width, s->r.height,
 					dec->cr_right, dec->cr_bot,
 					ctx->img_width, ctx->img_height);
+			if (dec->disp_drc.disp_crop_change) {
+				dec->disp_drc.disp_crop_change = 0;
+				mfc_debug(2, "clear disp_crop_change\n");
+			}
 		} else {
 			s->r.left = 0;
 			s->r.top = 0;

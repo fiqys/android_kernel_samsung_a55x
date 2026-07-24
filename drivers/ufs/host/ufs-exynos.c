@@ -2843,6 +2843,7 @@ static int exynos_ufs_sysfs_eom_store(struct exynos_ufs *ufs, const char *buf,
 	ret = ufs_call_cal(ufs, ufs_cal_eom);
 	if (ret)
 		dev_err(ufs->dev, "Fail to store eom data\n");
+	goto out;
 
 fail_mem:
 	for (i = 0; i < MAX_LANE; i++) {
@@ -2850,7 +2851,7 @@ fail_mem:
 			devm_kfree(ufs->dev, ufs->cal_param.eom[i]);
 		ufs->cal_param.eom[i] = NULL;
 	}
-
+out:
 	return ret;
 }
 
@@ -3223,7 +3224,7 @@ static int exynos_ufs_sysfs_init(struct exynos_ufs *ufs)
 	 */
 	ufs->params[UFS_S_PARAM_EOM_VER] = 0;
 	ufs->params[UFS_S_PARAM_MON] = 0;
-	ufs->params[UFS_S_PARAM_H8_D_MS] = 4;
+	ufs->params[UFS_S_PARAM_H8_D_MS] = 8;
 
 	return 0;
 

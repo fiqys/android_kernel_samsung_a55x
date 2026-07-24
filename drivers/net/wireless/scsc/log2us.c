@@ -1511,6 +1511,34 @@ void slsi_conn_log2us_ncho_mode(struct slsi_dev *sdev, struct net_device *dev, i
 	queue_work(sdev->conn_log2us_ctx.log2us_workq, &sdev->conn_log2us_ctx.log2us_work);
 }
 
+void slsi_conn_log2us_vendor_scan_abort(struct slsi_dev *sdev, struct net_device *dev,
+					int reason_code, int scan_type, u64 timestamp)
+{
+	int                      pos = 0;
+	char             *log_buffer = NULL;
+	int                 buf_size = BUFF_SIZE;
+	u32                  time[2] = { 0 };
+	struct   buff_list *new_node = NULL;
+	struct  netdev_vif *ndev_vif = netdev_priv(dev);
+
+	if (ndev_vif->iftype != NL80211_IFTYPE_STATION)
+		return;
+
+	new_node = slsi_conn_log2us_alloc_new_node();
+	if (!new_node)
+		return;
+	log_buffer = new_node->str;
+
+	get_kernel_timestamp(time);
+	pos += scnprintf(log_buffer + pos, buf_size - pos, "[%d.%d][VENDOR] EVENT_501 "
+			 "[Param1=%d Param2 =%d fw_time=%llu]", time[0], time[1],
+			 reason_code, scan_type, timestamp);
+
+	new_node->len = pos + 1;
+	enqueue_log_buffer(new_node, &sdev->conn_log2us_ctx);
+	queue_work(sdev->conn_log2us_ctx.log2us_workq, &sdev->conn_log2us_ctx.log2us_work);
+}
+
 #else
 
 void slsi_conn_log2us_init(struct slsi_dev *sdev)
@@ -1699,6 +1727,11 @@ void slsi_conn_log2us_beacon_report_response(struct slsi_dev *sdev, struct net_d
 }
 
 void slsi_conn_log2us_ncho_mode(struct slsi_dev *sdev, struct net_device *dev, int enable)
+{
+}
+
+void void slsi_conn_log2us_vendor_scan_abort(struct slsi_dev *sdev, struct net_device *dev,
+					     char* reason, char* scan_type, u64 timestamp)
 {
 }
 

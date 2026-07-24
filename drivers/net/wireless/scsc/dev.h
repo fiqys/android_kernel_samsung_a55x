@@ -160,6 +160,7 @@
 #define SLSI_HOSTSTATE_BASE_POS             2
 #define SLSI_HOSTSTATE_SUB6_BAND_MASK       0x0700
 #define SLSI_HOSTSTATE_SUB6_BAND_POS        8
+#define SLSI_HOSTSTATE_AIRPLANE_ACTIVE      0x2000
 #define SLSI_HOST_TAG_VLAN_ID_MASK          0x6000
 #define SLSI_HOST_TAG_ARP_MASK              BIT(15)
 #define SLSI_ARP_UNPAUSE_THRESHOLD          4
@@ -1968,7 +1969,6 @@ struct slsi_dev {
 	int                        home_away_time;
 	int                        max_channel_time;
 	int                        max_channel_passive_time;
-	int                        soft_roaming_scans_allowed;
 	int                        wlan_service_on;
 	bool                       detect_vif_active;
 	struct slsi_wlan_driver_wake_reason_cnt wake_reason_stats;

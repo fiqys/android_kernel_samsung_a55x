@@ -850,8 +850,7 @@ int is_valid_sep_index(int effect_id)
 		switch (effect_id) {
 		case 25:
 		case 28 ... 31:
-		case 35 ... 36:
-		case 53 ... 55:
+		case 35:
 		case 60 ... 63:
 		case 67:
 		case 100:

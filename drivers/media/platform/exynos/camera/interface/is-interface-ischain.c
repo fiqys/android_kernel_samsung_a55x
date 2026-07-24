@@ -348,6 +348,7 @@ IS_TIMER_FUNC(interface_timer)
 	struct is_group *group;
 	struct is_framemgr *framemgr;
 	struct is_work_list *work_list;
+	struct is_device_csi *csi;
 
 	FIMC_BUG_VOID(!itf->core);
 
@@ -453,6 +454,10 @@ IS_TIMER_FUNC(interface_timer)
 			pr_err ("sensor timer[%d] is increased to %d(fcount : %d)\n", i,
 				atomic_read(&itf->sensor_timeout[i]), fcount);
 			is_sensor_dump(sensor);
+
+			csi = (struct is_device_csi *)v4l2_get_subdevdata(sensor->subdev_csi);
+			if (csi)
+				csi_hw_dump_all(csi);
 		} else {
 			atomic_set(&itf->sensor_timeout[i], 0);
 			atomic_set(&itf->sensor_check[i], fcount);

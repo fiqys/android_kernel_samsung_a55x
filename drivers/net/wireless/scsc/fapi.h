@@ -1304,6 +1304,8 @@ extern "C" {
 #define FAPI_EVENT_WIFI_EVENT_NAN_CLUSTER_STARTED                     0x0104
 #define FAPI_EVENT_WIFI_EVENT_NAN_CLUSTER_JOINED                      0x0105
 #define FAPI_EVENT_WIFI_EVENT_NAN_TRANSMIT_FOLLOWUP                   0x0106
+/* Do not remove in FAPI update */
+#define FAPI_EVENT_WIFI_EVENT_VENDOR_SCAN_ABORT                       0x01f5
 
 #define FAPI_GI_0_8_MICROSECONDS   0x0
 #define FAPI_GI_1_6_MICROSECONDS   0x1

@@ -761,10 +761,10 @@ static int cis_imx754_probe_ixc(void *client, struct device_node *dnode,
 	cis->cis_ops = &cis_ops;
 	cis->bayer_order = OTF_INPUT_ORDER_BAYER_GR_BG;
 	cis->reg_addr = &sensor_imx754_reg_addr;
-	cis->priv_runtime = kzalloc(sizeof(struct sensor_imx754_private_runtime), GFP_KERNEL);
+	cis->priv_runtime = pablo_zalloc(sizeof(struct sensor_imx754_private_runtime), GFP_KERNEL);
 	if (!cis->priv_runtime) {
-		kfree(cis->cis_data);
-		kfree(cis->subdev);
+		pablo_free(cis->cis_data);
+		pablo_free(cis->subdev);
 		probe_err("cis->priv_runtime is NULL");
 		return -ENOMEM;
 	}

@@ -54,7 +54,7 @@ int is_vendor_probe(struct is_vendor *vendor)
 	snprintf(vendor->fw_path, sizeof(vendor->fw_path), "%s%s", IS_FW_DUMP_PATH, IS_FW);
 	snprintf(vendor->request_fw_path, sizeof(vendor->request_fw_path), "%s", IS_FW);
 
-	priv = (struct is_vendor_private *)kzalloc(
+	priv = (struct is_vendor_private *)pablo_zalloc(
 					sizeof(struct is_vendor_private), GFP_KERNEL);
 	if (!priv) {
 		probe_err("failed to allocate vendor specific");
@@ -154,6 +154,13 @@ int is_vendor_preproc_fw_load(struct is_vendor *vendor)
 
 	return ret;
 }
+
+#if IS_ENABLED(CONFIG_KG_DRV)
+bool is_vendor_resource_is_locked(void)
+{
+	return false;
+}
+#endif
 
 void is_vendor_resource_get(struct is_vendor *vendor, u32 rsc_type)
 {

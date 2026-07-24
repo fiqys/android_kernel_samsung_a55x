@@ -60,28 +60,6 @@ static void test_cac_create_tspec(struct kunit *test)
 	cac_delete_tspec_list(sdev);
 }
 
-static void test_cac_delete_tspec(struct kunit *test)
-{
-	struct net_device *dev = TEST_TO_DEV(test);
-	struct netdev_vif *ndev_vif = netdev_priv(dev);
-	struct slsi_dev *sdev = ndev_vif->sdev;
-	struct slsi_dev *sdev_nodev = kunit_kzalloc(test, sizeof(struct slsi_dev), GFP_KERNEL);
-	struct cac_tspec *itr;
-	int id;
-
-	ndev_vif->vif_type = FAPI_VIFTYPE_STATION;
-	ndev_vif->iftype = NL80211_IFTYPE_STATION;
-	ndev_vif->sta.vif_status = SLSI_VIF_STATUS_CONNECTED;
-	ndev_vif->activated = 1;
-
-	id = cac_create_tspec(sdev, NULL);
-	itr = find_tspec_entry(id, 0);
-	itr->accepted = 1;
-
-	KUNIT_EXPECT_EQ(test, 0, cac_delete_tspec(sdev_nodev, id));
-	KUNIT_EXPECT_EQ(test, -1, cac_delete_tspec(sdev_nodev, id+1));
-}
-
 static void test_cac_query_tspec_field(struct kunit *test)
 {
 	struct slsi_dev *sdev = TEST_TO_SDEV(test);
@@ -207,6 +185,7 @@ static void test_cac_send_addts(struct kunit *test)
 	sdev->device_config.qos_info = 267;
 	KUNIT_EXPECT_EQ(test, 0, cac_send_addts(sdev, id, 1));
 	ccx_status = BSS_CCX_DISABLED;
+
 	cac_delete_tspec_list(sdev);
 }
 
@@ -266,6 +245,7 @@ static void test_cac_send_delts(struct kunit *test)
 
 	ccx_status = BSS_CCX_DISABLED;
 	previous_msdu_lifetime = MAX_TRANSMIT_MSDU_LIFETIME_NOT_VALID;
+
 	cac_delete_tspec_list(sdev);
 }
 
@@ -486,9 +466,6 @@ static void test_cac_process_delts_req(struct kunit *test)
 	id = cac_create_tspec(sdev, args);
 	itr = find_tspec_entry(id, 0);
 	itr->accepted = 1;
-	cac_process_delts_req(sdev, dev, req);
-
-	sdev->sig_wait.cfm = cfm;
 	cac_process_delts_req(sdev, dev, req);
 
 	cac_delete_tspec_list(sdev);

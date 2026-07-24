@@ -2558,6 +2558,7 @@ static int dwc3_gadget_run_stop(struct dwc3 *dwc, int is_on)
 		reg &= DWC3_DSTS_DEVCTRLHLT;
 	} while (--timeout && !(!is_on ^ !reg));
 
+	dev_info(dwc->dev, "%s %d, timeout = %d\n", __func__, is_on, timeout);
 
 	if (saved_config) {
 		reg = dwc3_readl(dwc->regs, DWC3_GUSB2PHYCFG(0));
@@ -2565,12 +2566,8 @@ static int dwc3_gadget_run_stop(struct dwc3 *dwc, int is_on)
 		dwc3_writel(dwc->regs, DWC3_GUSB2PHYCFG(0), reg);
 	}
 
-	dev_info(dwc->dev, "%s %d, timeout = %d\n", __func__, is_on, timeout);
-
-	if (!timeout) {
-		dev_err(dwc->dev, "%s, timeout occurred\n", __func__);
+	if (!timeout)
 		return -ETIMEDOUT;
-	}
 
 	return 0;
 }
@@ -2656,7 +2653,6 @@ static int dwc3_gadget_soft_disconnect(struct dwc3 *dwc)
 static int dwc3_gadget_soft_connect(struct dwc3 *dwc)
 {
 	unsigned long flags;
-#ifndef CONFIG_SOC_S5E8845
 	int ret;
 
 	/*
@@ -2670,7 +2666,6 @@ static int dwc3_gadget_soft_connect(struct dwc3 *dwc)
 		return ret;
 
 	dwc3_event_buffers_setup(dwc);
-#endif
 	spin_lock_irqsave(&dwc->lock, flags);
 	__dwc3_gadget_start(dwc);
 	spin_unlock_irqrestore(&dwc->lock, flags);

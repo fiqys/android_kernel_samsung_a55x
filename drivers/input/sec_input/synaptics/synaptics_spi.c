@@ -417,7 +417,7 @@ int synaptics_stui_tsp_exit(void)
 
 int synaptics_stui_tsp_type(void)
 {
-	return STUI_TSP_TYPE_SNAPTICS;
+	return STUI_TSP_TYPE_SYNAPTICS;
 }
 #endif
 

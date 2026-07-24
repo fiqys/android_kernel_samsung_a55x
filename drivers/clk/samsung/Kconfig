@@ -12,7 +12,6 @@ config COMMON_CLK_SAMSUNG
 	select EXYNOS_5420_COMMON_CLK if ARM && SOC_EXYNOS5420
 	select EXYNOS_ARM64_COMMON_CLK if ARM64 && ARCH_EXYNOS
 	select TESLA_FSD_COMMON_CLK if ARM64 && ARCH_TESLA_FSD
-
 config COMPOSITE_CLK_SAMSUNG
 	tristate "Samsung Exynos clock controller support"
 	select COMMON_CLK_SAMSUNG

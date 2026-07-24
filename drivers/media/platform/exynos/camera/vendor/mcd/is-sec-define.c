@@ -17,6 +17,8 @@
 
 #include <linux/i2c.h>
 #include "is-device-rom.h"
+#include "is-device-ois_common.h"
+#include "is-vendor-ois-core.h"
 #include "is-notifier.h"
 #include "is-sysfs.h"
 #if defined(CONFIG_OIS_USE)
@@ -965,7 +967,7 @@ int is_sec_read_module_id(struct is_vendor_rom *rom_info, char *module_id, int r
 	if (rom_info->rom_type == ROM_TYPE_EEPROM)
 		ret = is_i2c_read(client, module_id, rom_info->rom_header_module_id_addr, IS_MODULE_ID_SIZE);
 	else if (rom_info->rom_type == ROM_TYPE_OTPROM) {
-		temp_buf = vzalloc(rom_info->rom_size);
+		temp_buf = pablo_zalloc(rom_info->rom_size, GFP_KERNEL);
 		if (!temp_buf) {
 			err("Cannot alloc temp buf for OTPROM read");
 			return ret;
@@ -973,11 +975,11 @@ int is_sec_read_module_id(struct is_vendor_rom *rom_info, char *module_id, int r
 		ret = is_sec_read_otprom(rom_info, temp_buf, rom_id);
 		if (ret) {
 			err("failed to OTPROM read (%d)\n", ret);
-			vfree(temp_buf);
+			pablo_free(temp_buf);
 			return ret;
 		}
 		memcpy(module_id, &temp_buf[rom_info->rom_header_module_id_addr], IS_MODULE_ID_SIZE);
-		vfree(temp_buf);
+		pablo_free(temp_buf);
 	}
 	else {
 		err("ROM TYPE is invalid [%d]", rom_info->rom_type);
@@ -1009,7 +1011,7 @@ int is_sec_read_header_verion(struct is_vendor_rom *rom_info, char *header_ver, 
 	if (rom_info->rom_type == ROM_TYPE_EEPROM)
 		ret = is_i2c_read(client, header_ver, rom_info->rom_header_version_start_addr, IS_HEADER_VER_SIZE);
 	else if (rom_info->rom_type == ROM_TYPE_OTPROM) {
-		temp_buf = vzalloc(rom_info->rom_size);
+		temp_buf = pablo_zalloc(rom_info->rom_size, GFP_KERNEL);
 		if (!temp_buf) {
 			err("%s Cannot alloc temp buf for OTPROM read", __func__);
 			return ret;
@@ -1017,11 +1019,11 @@ int is_sec_read_header_verion(struct is_vendor_rom *rom_info, char *header_ver, 
 		ret = is_sec_read_otprom(rom_info, temp_buf, rom_id);
 		if (ret) {
 			err("%s failed to OTPROM read (%d)\n", __func__, ret);
-			vfree(temp_buf);
+			pablo_free(temp_buf);
 			return ret;
 		}
 		memcpy(header_ver, &temp_buf[rom_info->rom_header_version_start_addr], IS_HEADER_VER_SIZE);
-		vfree(temp_buf);
+		pablo_free(temp_buf);
 	}
 	else {
 		err("%s ROM TYPE is invalid [%d]", __func__, rom_info->rom_type);
@@ -1134,6 +1136,7 @@ exit:
 /* TODO : move to dt */
 struct dualize_match_entry dualize_table[] = {
 	{ "M50EL", SENSOR_NAME_S5KGN5, "S5KGN5" },
+	{ "X50EL", SENSOR_NAME_S5KGNJ, "S5KGNJ" },
 };
 
 void is_sec_select_dualized_sensor(int rom_id)

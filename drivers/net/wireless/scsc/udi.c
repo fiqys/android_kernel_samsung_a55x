@@ -8,6 +8,7 @@
 #include <linux/poll.h>
 #include <linux/cdev.h>
 #include <scsc/scsc_warn.h>
+#include <scsc/scsc_mx.h>
 
 #include "dev.h"
 
@@ -239,7 +240,7 @@ static int slsi_cdev_open(struct inode *inode, struct file *file)
 	slsi_procfs_inc_node();
 
 #if IS_ENABLED(CONFIG_SCSC_MXLOGGER)
-	scsc_service_register_observer(NULL, "udi");
+	scsc_service_register_observer(NULL, "udi", SCSC_SUBSYSTEM_WLAN);
 #endif
 
 	SLSI_DBG1_NODEV(SLSI_UDI, "Client:%d added\n", indx);
@@ -293,7 +294,7 @@ static int slsi_cdev_release(struct inode *inode, struct file *filp)
 	slsi_procfs_dec_node();
 
 #if IS_ENABLED(CONFIG_SCSC_MXLOGGER)
-	scsc_service_unregister_observer(NULL, "udi");
+	scsc_service_unregister_observer(NULL, "udi", SCSC_SUBSYSTEM_WLAN);
 #endif
 
 	SLSI_DBG1_NODEV(SLSI_UDI, "Client:%d removed\n", indx);
@@ -725,7 +726,12 @@ static long slsi_cdev_ioctl(struct file *filp, unsigned int cmd, unsigned long a
 		break;
 	}
 	case UNIFI_SET_UDI_LOG_MASK:
-		r = slsi_unifi_set_log_mask(client, sdev, arg);
+		if (client->log_enabled) {
+			r = slsi_unifi_set_log_mask(client, sdev, arg);
+		} else {
+			SLSI_ERR(sdev, "UNIFI_SET_UDI_LOG_MASK: UDI is not enabled\n");
+			r = -EINVAL;
+		}
 		break;
 
 	case UNIFI_SET_MIB:

@@ -226,7 +226,7 @@ int sensor_3k1_cis_update_crop_region(struct v4l2_subdev *subdev)
 		return 0;
 	}
 
-	buf = vmalloc(MAX_MULTICAL_DATA_LENGTH);
+	buf = pablo_malloc(MAX_MULTICAL_DATA_LENGTH, GFP_KERNEL);
 	if (!buf) {
 		err("failed to allocate memory");
 		ret = -ENOMEM;
@@ -308,7 +308,7 @@ int sensor_3k1_cis_update_crop_region(struct v4l2_subdev *subdev)
 
 p_err:
 	if (buf)
-		vfree(buf);
+		pablo_free(buf);
 
 	return ret;
 }
@@ -760,10 +760,10 @@ static int cis_3k1_probe_i2c(struct i2c_client *client,
 	cis->cis_ops = &cis_ops;
 	cis->bayer_order = OTF_INPUT_ORDER_BAYER_GB_RG;
 	cis->reg_addr = &sensor_3k1_reg_addr;
-	cis->priv_runtime = kzalloc(sizeof(struct sensor_3k1_private_runtime), GFP_KERNEL);
+	cis->priv_runtime = pablo_zalloc(sizeof(struct sensor_3k1_private_runtime), GFP_KERNEL);
 	if (!cis->priv_runtime) {
-		kfree(cis->cis_data);
-		kfree(cis->subdev);
+		pablo_free(cis->cis_data);
+		pablo_free(cis->subdev);
 		probe_err("cis->priv_runtime is NULL");
 		return -ENOMEM;
 	}

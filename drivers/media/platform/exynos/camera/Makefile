@@ -408,13 +408,13 @@ fimc-is-$(CONFIG_CAMERA_VENDOR_MCD) += vendor/mcd/is-vendor.o \
 fimc-is-$(CONFIG_CAMERA_HW_BIG_DATA)	+= vendor/mcd/is-sysfs-hwparam.o
 
 fimc-is-$(CONFIG_OIS_USE)		+= vendor/mcd/is-device-ois_common.o \
-				vendor/mcd/is-sysfs-ois.o
+				vendor/mcd/is-sysfs-ois.o \
+				vendor/mcd/is-vendor-ois.o
 fimc-is-$(CONFIG_AF_HOST_CONTROL)		+= vendor/mcd/is-device-af.o
 fimc-is-$(CONFIG_CAMERA_USE_INTERNAL_MCU)	+= vendor/mcd/is-vendor-ois-internal-mcu.o \
-				vendor/mcd/is-hw-api-ois-mcu-v1_1_1.o \
-				vendor/mcd/is-vendor-ois.o
+				vendor/mcd/is-hw-api-ois-mcu-v1_1_1.o 
 fimc-is-$(CONFIG_CAMERA_USE_EXTERNAL_MCU)		+= vendor/mcd/is-vendor-ois-external-mcu.o
-fimc-is-$(CONFIG_CAMERA_USE_AOIS)		+= vendor/mcd/is-vendor-aois.o \
+fimc-is-$(CONFIG_CAMERA_USE_AOIS)		+= vendor/mcd/is-vendor-ois-advanced.o \
 				vendor/mcd/is-interface-aois.o
 subdir-ccflags-y += -I$(srctree)/drivers/media/platform/exynos/camera/vendor/mcd
 endif

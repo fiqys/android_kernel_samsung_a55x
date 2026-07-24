@@ -145,7 +145,6 @@ int xhci_halt(struct xhci_hcd *xhci)
 	if (ret) {
 		if (!(xhci->xhc_state & XHCI_STATE_DYING))
 			xhci_warn(xhci, "Host halt failed, %d\n", ret);
-
 		xhci_info(xhci, "Resetting HCD\n");
 		/* Reset the internal HC memory state and registers. */
 		for (i = 0; i < retry; i++) {
@@ -158,10 +157,7 @@ int xhci_halt(struct xhci_hcd *xhci)
 					goto out;
 			}
 		}
-
-		if (!(xhci->xhc_state & XHCI_STATE_DYING))
-			xhci_warn(xhci, "Host halt retry failed, %d\n", ret);
-
+		xhci_warn(xhci, "Host halt retry failed, %d\n", ret);
 		return ret;
 	}
 out:

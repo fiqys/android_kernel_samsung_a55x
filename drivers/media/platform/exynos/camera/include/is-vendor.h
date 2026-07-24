@@ -238,12 +238,16 @@ void is_vendor_check_hw_init_running(void);
 void is_vendor_sensor_s_input(struct is_vendor *vendor, u32 position);
 bool is_vendor_wdr_mode_on(void *cis_data);
 bool is_vendor_enable_wdr(void *cis_data);
+#if IS_ENABLED(CONFIG_KG_DRV)
+bool is_vendor_resource_is_locked(void);
+#endif
 void is_vendor_resource_get(struct is_vendor *vendor, u32 rsc_type);
 void is_vendor_resource_put(struct is_vendor *vendor, u32 rsc_type);
 #if defined(CONFIG_CAMERA_USE_INTERNAL_MCU)
 void is_vendor_mcu_power_on(bool use_shared_rsc);
 void is_vendor_mcu_power_off(bool use_shared_rsc);
 void is_vendor_mcu_power_on_wait(void);
+void is_vendor_mcu_power_on_flush_work(void);
 #endif
 long is_vendor_read_efs(char *efs_path, u8 *buf, int buflen);
 int is_vendor_get_module_from_position(int position, struct is_module_enum **module);
@@ -267,6 +271,7 @@ int is_vendor_is_dualized(struct is_device_sensor *sensor, int pos);
 void is_vendor_update_otf_data(struct is_group *group, struct is_frame *frame);
 void is_vendor_s_ext_ctrl_capture_intent_info(struct is_group *head, struct capture_intent_info_t info);
 int is_vendor_notify_hal_init(int mode, struct is_device_sensor *sensor);
+int is_vendor_set_campool_heap_size(int size);
 
 int is_vendor_set_mipi_clock(struct is_device_sensor *device);
 int is_vendor_set_mipi_mode(struct is_cis *cis);

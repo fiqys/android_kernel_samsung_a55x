@@ -40,6 +40,7 @@
 #include "is-vendor.h"
 #include "is-cis-imx906.h"
 #include "is-cis-imx906-setA.h"
+#include "is-cis-imx906-setB.h"
 
 #include "is-helper-ixc.h"
 #include "is-sec-define.h"
@@ -332,6 +333,8 @@ int sensor_imx906_cis_set_global_setting(struct v4l2_subdev *subdev)
 		err("global setting fail!!");
 
 	info("[%s] done\n", __func__);
+
+	ret |= cis->ixc_ops->write8(cis->client, 0xA301, 0x00); // for test pattern support
 
 #if IS_ENABLED(CIS_CALIBRATION)
 	sensor_imx906_cis_set_cal(subdev);
@@ -773,6 +776,43 @@ int sensor_imx906_cis_wait_seamless_update_delay(struct v4l2_subdev *subdev)
 	return ret;
 }
 
+int sensor_imx906_cis_set_test_pattern(struct v4l2_subdev *subdev, struct camera2_sensor_ctl *sensor_ctl)
+{
+	int ret = 0;
+	struct is_cis *cis = sensor_cis_get_cis(subdev);
+
+	dbg_sensor(1, "[MOD:D:%d] %s, cur_pattern_mode(%d), testPatternMode(%d)\n", cis->id, __func__,
+		cis->cis_data->cur_pattern_mode, sensor_ctl->testPatternMode);
+
+	if (cis->cis_data->cur_pattern_mode != sensor_ctl->testPatternMode) {
+		if (sensor_ctl->testPatternMode == SENSOR_TEST_PATTERN_MODE_OFF) {
+			info("[%d][%s] set DEFAULT pattern! (mode : %d)\n", cis->id, __func__, sensor_ctl->testPatternMode);
+
+			IXC_MUTEX_LOCK(cis->ixc_lock);
+			cis->ixc_ops->write16(cis->client, 0x3206, 0x0001);
+			cis->ixc_ops->write16(cis->client, 0x0600, 0x0000);
+			IXC_MUTEX_UNLOCK(cis->ixc_lock);
+
+			cis->cis_data->cur_pattern_mode = sensor_ctl->testPatternMode;
+		} else if (sensor_ctl->testPatternMode == SENSOR_TEST_PATTERN_MODE_BLACK) {
+			info("[%d][%s] set BLACK pattern! (mode :%d), Data : 0x(%x, %x, %x, %x)\n",
+				cis->id, __func__, sensor_ctl->testPatternMode,
+				(unsigned short)sensor_ctl->testPatternData[0],
+				(unsigned short)sensor_ctl->testPatternData[1],
+				(unsigned short)sensor_ctl->testPatternData[2],
+				(unsigned short)sensor_ctl->testPatternData[3]);
+
+			IXC_MUTEX_LOCK(cis->ixc_lock);
+			cis->ixc_ops->write16(cis->client, 0x3206, 0x0000);
+			cis->ixc_ops->write16(cis->client, 0x0600, 0x0001);
+			IXC_MUTEX_UNLOCK(cis->ixc_lock);
+
+			cis->cis_data->cur_pattern_mode = sensor_ctl->testPatternMode;
+		}
+	}
+	return ret;
+}
+
 static struct is_cis_ops cis_ops_imx906 = {
 	.cis_init = sensor_imx906_cis_init,
 	.cis_init_state = sensor_cis_init_state,
@@ -809,6 +849,7 @@ static struct is_cis_ops cis_ops_imx906 = {
 	.cis_check_rev_on_init = sensor_cis_check_rev_on_init,
 	.cis_set_initial_exposure = sensor_cis_set_initial_exposure,
 	.cis_set_wb_gains = sensor_imx906_cis_set_wb_gain,
+	.cis_set_test_pattern = sensor_imx906_cis_set_test_pattern,
 	.cis_update_seamless_mode = sensor_imx906_cis_update_seamless_mode,
 	.cis_seamless_ctl_before_stream = sensor_cis_seamless_ctl_before_stream,
 	.cis_update_seamless_state = sensor_cis_update_seamless_state,
@@ -842,10 +883,10 @@ int cis_imx906_probe_i2c(struct i2c_client *client,
 	cis->use_wb_gain = true;
 	cis->use_total_gain = false;
 	cis->reg_addr = &sensor_imx906_reg_addr;
-	cis->priv_runtime = kzalloc(sizeof(struct sensor_imx906_private_runtime), GFP_KERNEL);
+	cis->priv_runtime = pablo_zalloc(sizeof(struct sensor_imx906_private_runtime), GFP_KERNEL);
 	if (!cis->priv_runtime) {
-		kfree(cis->cis_data);
-		kfree(cis->subdev);
+		pablo_free(cis->cis_data);
+		pablo_free(cis->subdev);
 		probe_err("cis->priv_runtime is NULL");
 		return -ENOMEM;
 	}
@@ -859,12 +900,16 @@ int cis_imx906_probe_i2c(struct i2c_client *client,
 		setfile = "default";
 	}
 
-	if (strcmp(setfile, "default") == 0 || strcmp(setfile, "setA") == 0)
+	if (strcmp(setfile, "default") == 0 || strcmp(setfile, "setA") == 0) {
 		probe_info("[%s] setfile_A mclk: 19.2Mhz \n", __func__);
-	else
-		err("setfile index out of bound, take default (setfile_A mclk: 26Mhz)");
-
-	cis->sensor_info = &sensor_imx906_info_A;
+		cis->sensor_info = &sensor_imx906_info_A;
+	} else if (strcmp(setfile, "setB") == 0) {
+		probe_info("[%s] setfile_B mclk: 19.2Mhz \n", __func__);
+		cis->sensor_info = &sensor_imx906_info_B;
+	} else {
+		err("setfile index out of bound, take default (setfile_A mclk: 19.2Mhz)");
+		cis->sensor_info = &sensor_imx906_info_A;
+	}
 
 	is_vendor_set_mipi_mode(cis);
 

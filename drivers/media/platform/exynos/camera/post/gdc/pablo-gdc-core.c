@@ -1319,7 +1319,7 @@ static int gdc_open(struct file *file)
 	struct gdc_ctx *ctx;
 	int ret = 0;
 
-	ctx = vzalloc(sizeof(struct gdc_ctx));
+	ctx = pablo_zalloc(sizeof(struct gdc_ctx), GFP_KERNEL);
 
 	if (!ctx) {
 		dev_err(gdc->dev, "no memory for open context\n");
@@ -1394,7 +1394,7 @@ err_pclk_prepare:
 	atomic_dec(&gdc->m2m.in_use);
 	gdc_free_pmio_mem(gdc);
 err_alloc_pmio_mem:
-	vfree(ctx);
+	pablo_free(ctx);
 
 	return ret;
 }
@@ -1456,7 +1456,7 @@ static int gdc_release(struct file *file)
 		clk_unprepare(gdc->pclk);
 	v4l2_fh_del(&ctx->fh);
 	v4l2_fh_exit(&ctx->fh);
-	vfree(ctx);
+	pablo_free(ctx);
 
 	dev_info(gdc->dev, "X\n");
 

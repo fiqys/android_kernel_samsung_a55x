@@ -96,4 +96,5 @@ void slsi_conn_log2us_beacon_report_request(struct slsi_dev *sdev, struct net_de
 void slsi_conn_log2us_beacon_report_response(struct slsi_dev *sdev, struct net_device *dev, int dialog_token, int report_number);
 
 void slsi_conn_log2us_ncho_mode(struct slsi_dev *sdev, struct net_device *dev, int enable);
+void slsi_conn_log2us_vendor_scan_abort(struct slsi_dev *sdev, struct net_device *dev, int reason_code, int scan_type, u64 timestamp);
 #endif
