@@ -2813,7 +2813,7 @@ static void ip6_negative_advice(struct sock *sk,
 			 */
 			sk_dst_reset(sk);
 			rt6_remove_exception_rt(rt);
-		}
+ 		}
 		rcu_read_unlock();
 		return;
 	}

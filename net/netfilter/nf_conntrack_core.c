@@ -51,8 +51,6 @@
 #include <net/netfilter/nf_nat_helper.h>
 #include <net/netns/hash.h>
 #include <net/ip.h>
-#include <trace/hooks/vendor_hooks.h>
-#include <trace/hooks/net.h>
 // SEC_PRODUCT_FEATURE_KNOX_SUPPORT_NPA {
 #ifdef CONFIG_KNOX_NCM
 #include <net/ncm.h>
@@ -1708,10 +1706,6 @@ __nf_conntrack_alloc(struct net *net,
 	memset_after(ct, 0, __nfct_init_offset);
 
 	nf_ct_zone_add(ct, zone);
-
-#ifdef CONFIG_SEC_NET_HOOKS // These don't exist in our header scope, safely isolate them
-	trace_android_rvh_nf_conn_alloc(ct);
-#endif
 	// SEC_PRODUCT_FEATURE_KNOX_SUPPORT_NPA {
 #ifdef CONFIG_KNOX_NCM
 	ct->android_oem_data1 = (u64)kzalloc(sizeof(struct nf_conn_npa_vendor_data), gfp);
@@ -1775,9 +1769,6 @@ void nf_conntrack_free(struct nf_conn *ct)
 	}
 #endif
 	// SEC_PRODUCT_FEATURE_KNOX_SUPPORT_NPA }
-#ifdef CONFIG_SEC_NET_HOOKS
-	trace_android_rvh_nf_conn_free(ct);
-#endif
 	atomic_dec(&cnet->count);
 }
 EXPORT_SYMBOL_GPL(nf_conntrack_free);
