@@ -5535,8 +5535,6 @@
 
 	rw		[KNL] Mount root device read-write on boot
 
-	rwsem.opt_rspin= [KNL] Use rwsem reader optimistic spinning
-
 	S		[KNL] Run init in single mode
 
 	s390_iommu=	[HW,S390]
