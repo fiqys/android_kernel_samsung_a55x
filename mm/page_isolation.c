@@ -400,7 +400,7 @@ static int isolate_single_pageblock(unsigned long boundary_pfn, int flags,
 			struct page *head = compound_head(page);
 			unsigned long head_pfn = page_to_pfn(head);
 			unsigned long nr_pages = compound_nr(head);
-			
+
 			if (!PageCompound(head))
 				goto failed;
 

@@ -3239,6 +3239,11 @@ static struct file *do_async_mmap_readahead(struct vm_fault *vmf,
 	struct file *fpin = NULL;
 	unsigned int mmap_miss;
 	pgoff_t offset = vmf->pgoff;
+	bool skip = false;
+
+	trace_android_vh_do_async_mmap_readahead(vmf, folio, &skip);
+	if (skip)
+		return fpin;
 
 	/* If we don't want any read-ahead, don't bother */
 	if (vmf->vma->vm_flags & VM_RAND_READ || !ra->ra_pages)
@@ -3607,6 +3612,7 @@ out:
 	WRITE_ONCE(file->f_ra.mmap_miss, mmap_miss);
 	trace_android_vh_filemap_map_pages(file, first_pgoff, last_pgoff, ret);
 	trace_android_vh_filemap_map_pages_range(file, orig_start_pgoff, last_pgoff, ret);
+
 
 #ifdef CONFIG_PAGE_BOOST_RECORDING
 	/* end_pgoff is inclusive */

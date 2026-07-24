@@ -455,6 +455,13 @@ config HAVE_FAST_GUP
 	depends on MMU
 	bool
 
+config MEMBLOCK_MEMSIZE
+	bool "memblock based reserved memory profiling"
+	default y
+	help
+	  This patch introduce a procfs node, memblock/memsize, to see reserved
+	  memory easily.
+
 # Don't discard allocated memory used to track "memory" and "reserved" memblocks
 # after early boot, so it can still be used to test for validity of memory.
 # Also, memblocks are updated with memory hot(un)plug.
@@ -1115,6 +1122,14 @@ config KSWAPD_CPU
 	  Set kswapd cpu affinity by default. 0x3F means allowing CPU as 0 to 5.
 	  To disable this config, set this to 0.
 
+config MMAP_READAROUND_LIMIT
+	int "Limit mmap readaround upperbound"
+	default 16
+	help
+	  Inappropriate mmap readaround size can hurt device performance
+	  during the sluggish situation. Add the hard upper-limit for
+	  mmap readaround.
+
 config FAULT_AROUND_BYTES
 	int "Fault around bytes"
 	default 32768
@@ -1136,14 +1151,6 @@ config BALANCE_ANON_FILE_RECLAIM
 	  equally.
 	  Swapping anonymous pages out to memory can be efficient enough to justify
 	  treating anonymous and file backed pages equally.
-
-config MMAP_READAROUND_LIMIT
-	int "Limit mmap readaround upperbound"
-	default 16
-	help
-	  Inappropriate mmap readaround size can hurt device performance
-	  during the sluggish situation. Add the hard upper-limit for
-	  mmap readaround.
 
 config GUP_TEST
 	bool "Enable infrastructure for get_user_pages()-related unit tests"
