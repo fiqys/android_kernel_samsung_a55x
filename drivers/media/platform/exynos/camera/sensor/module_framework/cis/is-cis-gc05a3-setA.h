@@ -900,6 +900,7 @@ static const struct sensor_cis_info sensor_gc05a3_info_A = {
 	.max_width = 2592,
 	.max_height = 1944,
 	.min_analog_gain = 0x0400,
+	.min_digital_gain = 0x100,
 	.fine_integration_time = 0x0,
 	.cit_compensation_threshold = 30,
 	.use_group_param_hold = false,

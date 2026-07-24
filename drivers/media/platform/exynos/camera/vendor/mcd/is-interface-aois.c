@@ -5,8 +5,8 @@
 #include "is-core.h"
 #include "is-config.h"
 #include "is-interface-aois.h"
-#include "is-vendor-ois.h"
-#include "is-vendor-aois.h"
+#include "is-vendor-ois-core.h"
+#include "is-vendor-ois-advanced.h"
 
 #define MAX_NOTIFIER_BUF_SIZE   32
 

@@ -93,7 +93,7 @@ config QCOM_PDR_HELPERS
 	select QCOM_QMI_HELPERS
 
 config QCOM_QMI_HELPERS
-	tristate
+	tristate "Qualcomm QMI Helpers"
 	depends on NET
 
 config QCOM_RMTFS_MEM
@@ -247,5 +247,7 @@ config QCOM_ICC_BWMON
 	  Level Cache (memnoc).  Usage of this BWMON allows to remove some of
 	  the fixed bandwidth votes from cpufreq (CPU nodes) thus achieve high
 	  memory throughput even with lower CPU frequencies.
+
+source "drivers/bus/mhi/Kconfig"
 
 endmenu

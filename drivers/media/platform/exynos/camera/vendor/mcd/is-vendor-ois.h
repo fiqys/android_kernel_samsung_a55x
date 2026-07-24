@@ -11,58 +11,47 @@
 
 #ifndef IS_VENDOR_OIS_H
 #define IS_VENDOR_OIS_H
+#include <linux/i2c.h>
+#include "is-device-sensor-peri.h"
 
-#define	GYRO_CAL_VALUE_FROM_EFS	"/efs/FactoryApp/camera_ois_gyro_cal"
-#define	MAX_GYRO_EFS_DATA_LENGTH	30
-#define	MIN_AF_POSITION	1
-
-#if defined(CONFIG_CAMERA_USE_INTERNAL_MCU)
-struct mcu_default_data {
-	u32 ois_gyro_direction[5];
-	u32 ois_gyro_direction_len;
-};
-#else
-struct mcu_default_data {
-	u32 ois_gyro_direction[5];
-	u32 ois_gyro_direction_len;
-	u32 aperture_delay_list[2];
-	u32 aperture_delay_list_len;
-};
+void is_vendor_ois_parsing_raw_data(uint8_t *buf, long efs_size, long *raw_data_x, long *raw_data_y, long *raw_data_z);
+int is_vendor_ois_init(struct v4l2_subdev *subdev);
+int is_vendor_ois_init_factory(struct v4l2_subdev *subdev);
+#if defined(CAMERA_3RD_OIS)
+void is_vendor_ois_init_rear2(struct is_core *core);
+#endif /* CAMERA_3RD_OIS */
+int is_vendor_ois_deinit(struct v4l2_subdev *subdev);
+int is_vendor_ois_set_mode(struct v4l2_subdev *subdev, int mode);
+int is_vendor_ois_shift_compensation(struct v4l2_subdev *subdev, int position, int resolution);
+int is_vendor_ois_self_test(struct is_core *core);
+bool is_vendor_ois_auto_test_all(struct is_core *core,
+					int threshold, bool *x_result, bool *y_result, int *sin_x, int *sin_y,
+					bool *x_result_2nd, bool *y_result_2nd, int *sin_x_2nd, int *sin_y_2nd,
+					bool *x_result_3rd, bool *y_result_3rd, int *sin_x_3rd, int *sin_y_3rd);
+#if defined(CAMERA_2ND_OIS)
+bool is_vendor_ois_auto_test_rear2(struct is_core *core,
+					int threshold, bool *x_result, bool *y_result, int *sin_x, int *sin_y,
+					bool *x_result_2nd, bool *y_result_2nd, int *sin_x_2nd, int *sin_y_2nd);
+int is_vendor_ois_set_power_mode(struct v4l2_subdev *subdev, int forceMode);
+#endif /* CAMERA_2ND_OIS */
+void is_vendor_ois_enable(struct is_core *core);
+int is_vendor_ois_disable(struct v4l2_subdev *subdev);
+void is_vendor_ois_get_hall_position(struct is_core *core, u16 *targetPos, u16 *hallPos);
+bool is_vendor_ois_offset_test(struct is_core *core, long *raw_data_x, long *raw_data_y, long *raw_data_z);
+void is_vendor_ois_get_offset_data(struct is_core *core, long *raw_data_x, long *raw_data_y, long *raw_data_z);
+void is_vendor_ois_gyro_sleep(struct is_core *core);
+void is_vendor_ois_exif_data(struct is_core *core);
+u8 is_vendor_ois_read_status(struct is_core *core);
+u8 is_vendor_ois_read_cal_checksum(struct is_core *core);
+int is_vendor_ois_set_coef(struct v4l2_subdev *subdev, u8 coef);
+void is_vendor_ois_set_center_shift(struct v4l2_subdev *subdev, int16_t *shiftValue);
+int is_vendor_ois_set_centering(struct v4l2_subdev *subdev);
+u8 is_vendor_ois_read_mode(struct v4l2_subdev *subdev);
+bool is_vendor_ois_gyro_cal(struct is_core *core, long *x_value, long *y_value, long *z_value);
+bool is_vendor_ois_read_gyro_noise(struct is_core *core, long *x_value, long *y_value);
+#ifdef USE_OIS_HALL_DATA_FOR_VDIS
+int is_vendor_ois_get_hall_data(struct v4l2_subdev *subdev, struct is_ois_hall_data *halldata);
 #endif
-
-int is_ois_read_u8(int cmd, u8 *data);
-int is_ois_read_u16(int cmd, u8 *data);
-int is_ois_read_multi(int cmd, u8 *data, size_t size);
-int is_ois_write_u8(int cmd, u8 data);
-int is_ois_write_u16(int cmd, u8 *data);
-int is_ois_write_multi(int cmd, u8 *data, size_t size);
-
-/*
- * APIs
- */
-long is_vendor_ois_get_efs_data(struct ois_mcu_dev *mcu, long *raw_data_x, long *raw_data_y, long *raw_data_z);
-void is_vendor_ois_get_ops(struct is_ois_ops **ois_ops);
-
-/*
- * log
- */
-#define err_mcu(fmt, args...) \
-	pr_err("[@][OIS_MCU]%s:%d:" fmt "\n", __func__, __LINE__, ##args)
-
-#define warning_mcu(fmt, args...) \
-	pr_warn("[@][OIS_MCU]%s:%d:" fmt "\n", __func__, __LINE__, ##args)
-
-#define info_mcu(fmt, args...) \
-	pr_info("[@][OIS_MCU]" fmt, ##args)
-
-#define dbg_mcu(fmt, args...) \
-	pr_debug("[@][OIS_MCU]" fmt, ##args)
-
-#define MCU_ERR_PRINT(fmt, args...) \
-	pr_err("[@][OIS_MCU]%s:%d:" fmt "\n", __func__, __LINE__, ##args)
-
-#define MCU_GET_ERR_PRINT(idx) \
-	MCU_ERR_PRINT("%s: get fail (%s:%X)", __func__, ois_mcu_regs[idx].reg_name, ois_mcu_regs[idx].sfr_offset)
-#define MCU_SET_ERR_PRINT(idx) \
-	MCU_ERR_PRINT("%s: set fail (%s:%X)", __func__, ois_mcu_regs[idx].reg_name, ois_mcu_regs[idx].sfr_offset)
+void is_vendor_ois_check_valid(struct v4l2_subdev *subdev, u8 *value);
+bool is_vendor_ois_get_active(struct v4l2_subdev *subdev);
 #endif

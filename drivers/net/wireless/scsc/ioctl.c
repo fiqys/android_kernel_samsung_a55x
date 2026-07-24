@@ -5367,7 +5367,118 @@ void slsi_disable_ch12_13(struct slsi_dev *sdev)
 		chan->flags |= IEEE80211_CHAN_DISABLED;
 	}
 
-	SLSI_DBG1(sdev, SLSI_CFG80211, "Channels 12 and 13 have been disabled");
+	SLSI_DBG1(sdev, SLSI_CFG80211, "Channels 12 and 13 have been disabled\n");
+}
+
+static void slsi_p2p_group_disconnect(struct slsi_dev *sdev, struct net_device *p2p_dev)
+{
+	struct netdev_vif *p2p_ndev_vif = NULL;
+
+	if (p2p_dev)
+		p2p_ndev_vif = netdev_priv(p2p_dev);
+	else
+		return;
+
+	if (!p2p_ndev_vif)
+		return;
+
+	SLSI_DBG1(sdev, SLSI_CFG80211, "\n");
+
+	SLSI_MUTEX_LOCK(p2p_ndev_vif->vif_mutex);
+	if (SLSI_IS_P2P_GROUP_STATE(sdev) && p2p_ndev_vif && p2p_ndev_vif->activated && p2p_ndev_vif->chan->hw_value >= 36 && p2p_ndev_vif->chan->hw_value <= 64) {
+
+		SLSI_DBG1(sdev, SLSI_CFG80211, "P2P Disconnect p2p state: %d chan: %d\n", sdev->p2p_state, p2p_ndev_vif->chan->hw_value);
+
+		if (sdev->p2p_state == P2P_GROUP_FORMED_GO)
+			slsi_clear_cached_ies(&p2p_ndev_vif->ap.add_info_ies, &p2p_ndev_vif->ap.add_info_ies_len);
+		slsi_vif_cleanup(sdev, p2p_dev, 1, 0);
+	}
+	SLSI_MUTEX_UNLOCK(p2p_ndev_vif->vif_mutex);
+}
+
+static void slsi_enable_disable_unii_1_2a(struct net_device *dev, bool enable)
+{
+	struct netdev_vif           *ndev_vif = netdev_priv(dev);
+	struct slsi_dev             *sdev = ndev_vif->sdev;
+	struct wiphy                *wiphy = sdev->wiphy;
+	struct ieee80211_channel    *chan;
+	int r;
+	struct net_device *p2p_dev;
+
+#ifdef CONFIG_SCSC_WLAN_EHT
+	u16 mlo_vif = 0;
+#endif
+	p2p_dev = slsi_get_netdev(sdev, SLSI_NET_INDEX_P2PX_SWLAN);
+	SLSI_MUTEX_LOCK(ndev_vif->vif_mutex);
+
+	/* For country CA, on airplanemode on, disable UNII-1/2A as required by canada ISED */
+	/* index 0-3 is unii1 index 4-7 is unii2a */
+	if (wiphy->bands[1]) {
+		if (enable) {
+			chan = &wiphy->bands[1]->channels[0];
+			chan->flags &= ~IEEE80211_CHAN_DISABLED;
+			chan = &wiphy->bands[1]->channels[1];
+			chan->flags &= ~IEEE80211_CHAN_DISABLED;
+			chan = &wiphy->bands[1]->channels[2];
+			chan->flags &= ~IEEE80211_CHAN_DISABLED;
+			chan = &wiphy->bands[1]->channels[3];
+			chan->flags &= ~IEEE80211_CHAN_DISABLED;
+			chan = &wiphy->bands[1]->channels[4];
+			chan->flags &= ~IEEE80211_CHAN_DISABLED;
+			chan = &wiphy->bands[1]->channels[5];
+			chan->flags &= ~IEEE80211_CHAN_DISABLED;
+			chan = &wiphy->bands[1]->channels[6];
+			chan->flags &= ~IEEE80211_CHAN_DISABLED;
+			chan = &wiphy->bands[1]->channels[7];
+			chan->flags &= ~IEEE80211_CHAN_DISABLED;
+		} else {
+			chan = &wiphy->bands[1]->channels[0];
+			chan->flags |= IEEE80211_CHAN_DISABLED;
+			chan = &wiphy->bands[1]->channels[1];
+			chan->flags |= IEEE80211_CHAN_DISABLED;
+			chan = &wiphy->bands[1]->channels[2];
+			chan->flags |= IEEE80211_CHAN_DISABLED;
+			chan = &wiphy->bands[1]->channels[3];
+			chan->flags |= IEEE80211_CHAN_DISABLED;
+			chan = &wiphy->bands[1]->channels[4];
+			chan->flags |= IEEE80211_CHAN_DISABLED;
+			chan = &wiphy->bands[1]->channels[5];
+			chan->flags |= IEEE80211_CHAN_DISABLED;
+			chan = &wiphy->bands[1]->channels[6];
+			chan->flags |= IEEE80211_CHAN_DISABLED;
+			chan = &wiphy->bands[1]->channels[7];
+			chan->flags |= IEEE80211_CHAN_DISABLED;
+
+			SLSI_DBG1(sdev, SLSI_CFG80211, "unii1 and unii2a have been disabled\n");
+
+			if (ndev_vif->sta.vif_status == SLSI_VIF_STATUS_CONNECTED &&
+				(ndev_vif->chan->hw_value >= 36 && ndev_vif->chan->hw_value <= 64)) {
+
+				SLSI_INFO(sdev, "Disconnect STA due to UNII-1/2a disable\n");
+#ifdef CONFIG_SCSC_WLAN_EHT
+				r = slsi_mlme_disconnect(sdev, dev, ndev_vif->sta.sta_bss->bssid, WLAN_REASON_DEAUTH_LEAVING, true, &mlo_vif);
+				if (r != 0)
+					SLSI_ERR(sdev, "slsi_mlme_disconnect(" MACSTR ") failed with %d\n",
+						 MAC2STR(ndev_vif->sta.sta_bss->bssid), r);
+				r = slsi_handle_disconnect(sdev, dev, ndev_vif->sta.sta_bss->bssid, 0, NULL, 0, mlo_vif);
+#else
+				r = slsi_mlme_disconnect(sdev, dev, ndev_vif->sta.sta_bss->bssid, WLAN_REASON_DEAUTH_LEAVING, true);
+				if (r != 0)
+					SLSI_ERR(sdev, "slsi_mlme_disconnect(" MACSTR ") failed with %d\n",
+						MAC2STR(ndev_vif->sta.sta_bss->bssid), r);
+				r = slsi_handle_disconnect(sdev, dev, ndev_vif->sta.sta_bss->bssid, 0, NULL, 0);
+#endif
+				if (r != 0)
+					SLSI_ERR(sdev, "slsi_handle_disconnect(" MACSTR ") failed with %d\n",
+						MAC2STR(ndev_vif->sta.sta_bss->bssid), r);
+			}
+			SLSI_MUTEX_UNLOCK(ndev_vif->vif_mutex);
+			slsi_p2p_group_disconnect(sdev, p2p_dev);
+			return;
+		}
+	}
+
+	SLSI_MUTEX_UNLOCK(ndev_vif->vif_mutex);
 }
 
 #ifdef CONFIG_SCSC_WLAN_SUPPORT_6G
@@ -5402,8 +5513,12 @@ int slsi_set_fcc_channel(struct net_device *dev, char *cmd, int cmd_len)
 	struct slsi_dev        *sdev = ndev_vif->sdev;
 	struct slsi_ioctl_args *ioctl_args = NULL;
 	int                    status;
+	int		       ret;
 	int                    fcc_channel_value;
+	bool		       disable_unii1_unii2a = false;
+	bool		       disable_12_13 = false;
 	u16                    host_state;
+	char country_code[3] = "";
 
 	ioctl_args = slsi_get_private_command_args(cmd, cmd_len, 1);
 	status = slsi_verify_ioctl_args(sdev, ioctl_args);
@@ -5416,21 +5531,31 @@ int slsi_set_fcc_channel(struct net_device *dev, char *cmd, int cmd_len)
 		return -EINVAL;
 	}
 
-	if (!(fcc_channel_value >= -1 && fcc_channel_value <= 2)) {
+	if (!(fcc_channel_value >= -1 && fcc_channel_value <= 3)) {
 		SLSI_ERR(sdev, "Invalid value of flight_mode_ena: '%s'\n", ioctl_args->args[0]);
 		kfree(ioctl_args);
 		return -EINVAL;
 	}
 
 	SLSI_MUTEX_LOCK(sdev->device_config_mutex);
+#ifdef CONFIG_SCSC_WLAN_SUPPORT_6G
+	if (!slsi_is_test_mode_enabled() && !slsi_is_rf_test_mode_enabled()) {
+		if (sdev->band_6g_supported && (fcc_channel_value == 0 || fcc_channel_value == 2 || fcc_channel_value == 3))
+			slsi_configure_6ghz_support(sdev, false);
+		if (!sdev->band_6g_supported && (fcc_channel_value == 1 || fcc_channel_value == -1))
+			slsi_configure_6ghz_support(sdev, true);
+	}
+#endif
 	host_state = sdev->device_config.host_state;
 
-	/* SET_FCC_CHANNEL 0/1 indicates flight mode is enabled */
-	/* SET_FCC_CHANNEL -1/2 indicates flight mode is disabled */
-	if (fcc_channel_value == 0 || fcc_channel_value == 1)
+	/* SET_FCC_CHANNEL 0/1/3 indicates celluar active is disabled */
+	/* SET_FCC_CHANNEL -1 indicates celluar active is enabled */
+	if (fcc_channel_value == 0 || fcc_channel_value == 1 || fcc_channel_value == 3)
 		host_state = host_state & ~SLSI_HOSTSTATE_CELLULAR_ACTIVE;
-	else
+	else if (fcc_channel_value == -1)
 		host_state = host_state | SLSI_HOSTSTATE_CELLULAR_ACTIVE;
+	/* SET_FCC_CHANNEL -1/0/1 indicates airplane active is disabled */
+	/* SET_FCC_CHANNEL 3 indicates airplane active is enabled */
 	sdev->device_config.host_state = host_state;
 
 	status = slsi_mlme_set_host_state(sdev, dev, host_state);
@@ -5448,7 +5573,37 @@ int slsi_set_fcc_channel(struct net_device *dev, char *cmd, int cmd_len)
 		}
 #endif
 	}
+
+	if ((fcc_channel_value == 0 || fcc_channel_value == 1 || fcc_channel_value == 3) && sdev->device_config.disable_ch12_ch13) {
+		slsi_disable_ch12_13(sdev);
+		disable_12_13 = true;
+	}
+	if (country_code[0] == 'C' && country_code[1] == 'A') {
+		if (fcc_channel_value == 3)
+			disable_unii1_unii2a = true;
+	}
+
+	country_code[0] = sdev->device_config.domain_info.regdomain->alpha2[0];
+	country_code[1] = sdev->device_config.domain_info.regdomain->alpha2[1];
+	country_code[2] = '\0';
+
+	if (country_code[0] == 'C' && country_code[1] == 'A') {
+		if (fcc_channel_value == 3)
+			disable_unii1_unii2a = true;
+	}
+	ret = slsi_mlme_set_country_with_filter(sdev, sdev->device_config.domain_info.regdomain->alpha2, disable_unii1_unii2a, disable_12_13);
+	if (ret != 0)
+		SLSI_NET_ERR(dev, "Error in sending regulatory rules, ret=%d\n", ret);
+
 	SLSI_MUTEX_UNLOCK(sdev->device_config_mutex);
+
+	if (country_code[0] == 'C' && country_code[1] == 'A') {
+		if (fcc_channel_value == -1 || fcc_channel_value == 0 || fcc_channel_value == 1) {
+			slsi_enable_disable_unii_1_2a(dev, true);
+		} else if (fcc_channel_value == 3) {
+			slsi_enable_disable_unii_1_2a(dev, false);
+		}
+	}
 
 	kfree(ioctl_args);
 	return status;

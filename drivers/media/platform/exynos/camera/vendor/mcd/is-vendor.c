@@ -20,7 +20,7 @@
 #include "is-sysfs-rear.h"
 #if defined(CONFIG_OIS_USE)
 #include "is-sysfs-ois.h"
-#include "is-device-ois.h"
+#include "is-device-ois_common.h"
 #endif
 #include "is-notifier.h"
 
@@ -34,13 +34,14 @@
 #include "is-devicemgr.h"
 #include "is-vendor-device-info.h"
 #include "is-vendor-private.h"
+#include "is-vendor-ois-core.h"
 #if defined(CONFIG_CAMERA_USE_INTERNAL_MCU)
 #include "is-hw-api-ois-mcu.h"
 #include "is-vendor-ois-internal-mcu.h"
 #elif defined(CONFIG_CAMERA_USE_EXTERNAL_MCU)
 #include "is-vendor-ois-external-mcu.h"
 #elif defined(CONFIG_CAMERA_USE_AOIS)
-#include "is-vendor-aois.h"
+#include "is-vendor-ois-advanced.h"
 #endif
 #include "is-device-rom.h"
 
@@ -48,6 +49,9 @@
 extern bool check_shaking_noise;
 #endif
 
+#if IS_ENABLED(CONFIG_KG_DRV)
+#include <linux/kg_drv.h>
+#endif
 
 #if IS_ENABLED(CONFIG_LEDS_S2MF301_FLASH)
 #include <linux/leds-s2mf301.h>
@@ -63,6 +67,17 @@ static int s2mf301_trigger_pre_flash(void *data) {
 }
 #endif
 
+#if IS_ENABLED(CONFIG_LEDS_SM5714B)
+#include <linux/leds-sm5714b.h>
+static struct task_struct *sm5714_preflash_thread = NULL;
+extern int32_t sm5714b_fled_mode_ctrl(int state, uint32_t brightness);
+
+static int sm5714_trigger_pre_flash(void *data) {
+	sm5714b_fled_mode_ctrl(SM5714B_FLED_MODE_PRE_FLASH, 0);
+	return 0;
+}
+#endif
+
 static bool is_hw_init_running;
 static bool check_hw_init;
 static struct mutex g_efs_mutex;
@@ -71,6 +86,11 @@ static struct mutex g_shaking_mutex;
 #ifdef CAMERA_PARALLEL_RETENTION_SEQUENCE
 struct workqueue_struct *sensor_pwr_ctrl_wq;
 #define CAMERA_WORKQUEUE_MAX_WAITING	1000
+#endif
+
+#ifdef CONFIG_DMABUF_HEAPS_CAMERAPOOL
+extern void camerapool_preallocate(unsigned long heap_size);
+extern void camerapool_free_pages(void);
 #endif
 
 extern int sensor_cis_set_registers(struct v4l2_subdev *subdev, const u32 *regs, const u32 size);
@@ -585,8 +605,7 @@ int is_vendor_probe(struct is_vendor *vendor)
 	snprintf(vendor->fw_path, sizeof(vendor->fw_path), "%s", IS_FW_SDCARD);
 	snprintf(vendor->request_fw_path, sizeof(vendor->request_fw_path), "%s", IS_FW);
 
-	vendor_priv = devm_kzalloc(&core->pdev->dev,
-			sizeof(struct is_vendor_private), GFP_KERNEL);
+	vendor_priv = pablo_zalloc(sizeof(struct is_vendor_private), GFP_KERNEL);
 	if (!vendor_priv) {
 		probe_err("failed to allocate is_vendor_private");
 		return -ENOMEM;
@@ -675,6 +694,7 @@ int is_vendor_driver_init(void)
 int is_vendor_driver_exit(void)
 {
 	int ret = 0;
+	struct is_vendor *vendor = &is_get_is_core()->vendor;
 
 	i2c_del_driver(is_get_rom_driver());
 #ifdef CONFIG_CAMERA_USE_INTERNAL_MCU
@@ -685,6 +705,7 @@ int is_vendor_driver_exit(void)
 	platform_driver_unregister(get_aois_platform_driver());
 #endif
 
+	pablo_free(vendor->private_data);
 	return ret;
 }
 #endif
@@ -1445,6 +1466,9 @@ int is_vendor_hw_init(void)
 #if defined(USE_CAMERA_ADAPTIVE_MIPI) && IS_ENABLED(CONFIG_DEV_RIL_BRIDGE)
 	is_vendor_register_ril_notifier();
 #endif
+#ifdef CONFIG_CAMERA_USE_MCU
+	is_ois_fw_update(core);
+#endif
 	is_hw_init_running = false;
 	info("hw init done\n");
 	return 0;
@@ -1917,6 +1941,16 @@ int is_vendor_set_torch(struct camera2_shot *shot)
 			info("is_vendor_set_torch s2mf301_fled_mode_ctrl:(%d)\n", aeflashMode);
 			s2mf301_preflash_thread = kthread_run(s2mf301_trigger_pre_flash, NULL, "s2mf301_preflash_thread");
 			if (IS_ERR(s2mf301_preflash_thread)) {
+				WARN_ON(1);
+				return 0;
+			}
+		}
+#endif
+#if IS_ENABLED(CONFIG_LEDS_SM5714B)
+		if (shot->uctl.masterCamera == AA_SENSORPLACE_REAR) {
+			info("is_vender_set_torch sm5714b_fled_mode_ctrl:(%d)\n", aeflashMode);
+			sm5714_preflash_thread = kthread_run(sm5714_trigger_pre_flash, NULL, "sm5714_preflash_thread");
+			if (IS_ERR(sm5714_preflash_thread)) {
 				WARN_ON(1);
 				return 0;
 			}
@@ -2425,6 +2459,18 @@ int release_shared_rsc(struct ois_mcu_dev *mcu)
 	return atomic_dec_return(&mcu->shared_rsc_count);
 }
 
+void is_vendor_mcu_power_on_flush_work(void)
+{
+	struct is_core *core = NULL;
+	struct ois_mcu_dev *mcu = NULL;
+	core = is_get_is_core();
+	if (!core->mcu)
+		return;
+
+	mcu = core->mcu;
+	flush_work(&mcu->mcu_power_on_work);
+}
+
 void is_vendor_mcu_power_on_wait(void)
 {
 	struct is_core *core = NULL;
@@ -2600,6 +2646,17 @@ int is_vendor_shaking_gpio_off(struct is_vendor *vendor)
 	mutex_unlock(&g_shaking_mutex);
 	info("%s X\n", __func__);
 
+	return ret;
+}
+#endif
+
+#if IS_ENABLED(CONFIG_KG_DRV)
+bool is_vendor_resource_is_locked(void)
+{
+	bool ret;
+	ret = kg_resource_is_locked(KG_RESOURCE_CAMERA);
+	if (ret)
+		info("[%s] kg_resource is locked\n", __func__);
 	return ret;
 }
 #endif
@@ -2979,6 +3036,20 @@ int is_vendor_notify_hal_init(int mode, struct is_device_sensor *sensor)
 	}
 
 	return ret;
+}
+
+int is_vendor_set_campool_heap_size(int size)
+{
+	info("[%s] size[%d]\n", __func__, size);
+
+#ifdef CONFIG_DMABUF_HEAPS_CAMERAPOOL
+	if (size > 0)
+		camerapool_preallocate(size);
+	else
+		camerapool_free_pages();
+#endif
+
+	return 0;
 }
 
 #if IS_ENABLED(CONFIG_SEC_ABC)

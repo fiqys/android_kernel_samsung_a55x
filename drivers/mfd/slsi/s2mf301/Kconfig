@@ -7,3 +7,4 @@ tristate "Samsung Electronics S2MF301 IF PMIC Series Support"
 	  This driver provides common support for accessing the device,
 	  additional drivers must be enabled in order to use the functionality
 	  of the device
+

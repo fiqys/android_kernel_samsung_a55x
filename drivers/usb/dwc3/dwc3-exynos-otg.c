@@ -741,6 +741,19 @@ static int dwc3_otg_start_gadget(struct otg_fsm *fsm, int on)
 
 	dwc->softconnect = on;
 
+#if IS_ENABLED(CONFIG_SOC_S5E8845)
+	/* For waiting until pullup done */
+	while (g_dwc3_exynos->pullup_state == 1) {
+		wait_counter++;
+		usleep_range(200, 400);
+
+		if (wait_counter > 500) {
+			pr_err("pullup is still in progress !\n");
+			break;
+		}
+	}
+	wait_counter = 0;
+#endif
 #if IS_ENABLED(CONFIG_USB_CONFIGFS_F_SS_MON_GADGET)
 	vbus_session_notify(dwc->gadget, on, EAGAIN);
 #endif
@@ -759,7 +772,6 @@ static int dwc3_otg_start_gadget(struct otg_fsm *fsm, int on)
 #endif
 		}
 
-		exynos->vbus_state = true;
 		dwc->ev_buf->flags |= BIT(20);
 		pr_info("%s: set BIT(20) event buffer flags\n", __func__);
 		while (dwc->gadget_driver == NULL) {
@@ -813,6 +825,15 @@ static int dwc3_otg_start_gadget(struct otg_fsm *fsm, int on)
 		timer_setup(&exynos->usb_connect_timer, retry_configuration, 0);
 		mod_timer(&exynos->usb_connect_timer,
 				jiffies + CHG_CONNECTED_DELAY_TIME);
+#endif
+		exynos->vbus_state = true;
+#if IS_ENABLED(CONFIG_SOC_S5E8845)
+		if (g_dwc3_exynos->force_pullup && !dwc->pullups_connected &&
+				dwc->gadget && dwc->gadget->udc->driver) {
+			pr_info("Trigger force pullup \n");
+			usb_gadget_connect(dwc->gadget);
+			g_dwc3_exynos->force_pullup = false;
+		}
 #endif
 	} else {
 		exynos->vbus_state = false;

@@ -47,7 +47,16 @@
 #define STREAM_OFF_WAIT_TIME 2000	/* 2ms */
 #define STREAM_ON_WAIT_TIME 2000	/* 2ms */
 
-/* CIS OPS */
+u32 sensor_gc05a3_cis_calc_again_permile(u32 code)
+{
+	return (code * 1000 + 512) / 1024;
+}
+
+u32 sensor_gc05a3_cis_calc_again_code(u32 permile)
+{
+	return (permile * 1024 + 500) / 1000;
+}
+
 int sensor_gc05a3_cis_init(struct v4l2_subdev *subdev)
 {
 	int ret = 0;
@@ -369,14 +378,48 @@ exit:
 	return ret;
 }
 
-u32 sensor_gc05a3_cis_calc_again_permile(u32 code)
+int sensor_gc05a3_cis_set_test_pattern(struct v4l2_subdev *subdev, struct camera2_sensor_ctl *sensor_ctl)
 {
-	return (code * 1000 + 512) / 1024;
-}
+	int ret = 0;
+	struct is_cis *cis = sensor_cis_get_cis(subdev);
 
-u32 sensor_gc05a3_cis_calc_again_code(u32 permile)
-{
-	return (permile * 1024 + 500) / 1000;
+	dbg_sensor(1, "[MOD:D:%d] %s, cur_pattern_mode(%d), testPatternMode(%d)\n", cis->id, __func__,
+		cis->cis_data->cur_pattern_mode, sensor_ctl->testPatternMode);
+
+	if (cis->cis_data->cur_pattern_mode != sensor_ctl->testPatternMode) {
+		if (sensor_ctl->testPatternMode == SENSOR_TEST_PATTERN_MODE_OFF) {
+			info("[%d][%s] set DEFAULT pattern! (mode : %d)\n", cis->id, __func__, sensor_ctl->testPatternMode);
+
+			IXC_MUTEX_LOCK(cis->ixc_lock);
+			cis->ixc_ops->write8(cis->client, 0x0af4, 0x29);
+			cis->ixc_ops->write8(cis->client, 0x0af5, 0x21);			
+			cis->ixc_ops->write8(cis->client, 0x008c, 0x00);			
+			cis->ixc_ops->write8(cis->client, 0x0050, 0x00);
+			cis->ixc_ops->write8(cis->client, 0x0af5, 0x20);
+			IXC_MUTEX_UNLOCK(cis->ixc_lock);
+
+			cis->cis_data->cur_pattern_mode = sensor_ctl->testPatternMode;
+		} else if (sensor_ctl->testPatternMode == SENSOR_TEST_PATTERN_MODE_BLACK) {
+			info("[%d][%s] set BLACK pattern! (mode :%d), Data : 0x(%x, %x, %x, %x)\n",
+				cis->id, __func__, sensor_ctl->testPatternMode,
+				(unsigned short)sensor_ctl->testPatternData[0],
+				(unsigned short)sensor_ctl->testPatternData[1],
+				(unsigned short)sensor_ctl->testPatternData[2],
+				(unsigned short)sensor_ctl->testPatternData[3]);
+
+			IXC_MUTEX_LOCK(cis->ixc_lock);
+			cis->ixc_ops->write8(cis->client, 0x0af4, 0x29);
+			cis->ixc_ops->write8(cis->client, 0x0af5, 0x21);
+			cis->ixc_ops->write8(cis->client, 0x008d, 0x00);
+			cis->ixc_ops->write8(cis->client, 0x008c, 0x01);
+			cis->ixc_ops->write8(cis->client, 0x0050, 0x05);
+			cis->ixc_ops->write8(cis->client, 0x0af5, 0x20);
+			IXC_MUTEX_UNLOCK(cis->ixc_lock);
+
+			cis->cis_data->cur_pattern_mode = sensor_ctl->testPatternMode;
+		}
+	}
+	return ret;
 }
 
 static struct is_cis_ops cis_ops_gc05a3 = {
@@ -405,10 +448,13 @@ static struct is_cis_ops cis_ops_gc05a3 = {
 	.cis_get_max_analog_gain = sensor_cis_get_max_analog_gain,
 	.cis_calc_again_code = sensor_gc05a3_cis_calc_again_code,
 	.cis_calc_again_permile = sensor_gc05a3_cis_calc_again_permile,
+	.cis_get_min_digital_gain = sensor_cis_get_min_digital_gain,
+	.cis_calc_dgain_permile = sensor_cis_calc_dgain_permile,
 	.cis_compensate_gain_for_extremely_br = sensor_cis_compensate_gain_for_extremely_br,
 	.cis_check_rev_on_init = sensor_cis_check_rev_on_init,
 	.cis_set_initial_exposure = sensor_cis_set_initial_exposure,
 	.cis_get_otprom_data = sensor_gc05a3_cis_get_otprom_data,
+	.cis_set_test_pattern = sensor_gc05a3_cis_set_test_pattern,
 };
 
 int cis_gc05a3_probe(struct i2c_client *client,

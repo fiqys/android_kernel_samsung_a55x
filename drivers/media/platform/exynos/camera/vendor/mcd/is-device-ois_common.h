@@ -10,10 +10,11 @@
  * published by the Free Software Foundation.
  */
 
-#ifndef IS_DEVICE_OIS_H
-#define IS_DEVICE_OIS_H
+#ifndef IS_DEVICE_OIS_COMMON_H
+#define IS_DEVICE_OIS_COMMON_H
 
 #include "is-interface-sensor.h"
+#include "is-vendor-ois-core.h"
 
 struct is_ois_exif {
 	int error_data;
@@ -47,15 +48,28 @@ struct is_ois_info {
 	bool reset_check;
 };
 
-#define FIMC_OIS_FW_NAME_SEC		"ois_fw_sec.bin"
-#define FIMC_OIS_FW_NAME_SEC_2		"ois_fw_sec_2.bin"
-#define FIMC_OIS_FW_NAME_DOM		"ois_fw_dom.bin"
-#define IS_OIS_SDCARD_PATH		"/data/vendor/camera/"
+struct ois_comm_ops {
+	int (*read_u8)(int cmd, u8 *data);
+	int (*read_u16)(int cmd, u8 *data);
+	int (*read_multi)(int cmd, u8 *data, size_t size);
+	int (*write_u8)(int cmd, u8 data);
+	int (*write_u16)(int cmd, u8 *data);
+	int (*write_multi)(int cmd, u8 *data, size_t size);
+};
+
+int ois_read_u8(int cmd, u8 *data);
+int ois_write_u8(int cmd, u8 data);
+int ois_read_multi(int cmd, u8 *data, size_t size);
+int ois_write_multi(int cmd, u8 *data, size_t size);
+int ois_read_u16(int cmd, u8 *data);
+int ois_write_u16(int cmd, u8 *data);
+int set_ois_comm_ops(struct ois_comm_ops *ops);
 
 bool is_ois_offset_test(struct is_core *core, long *raw_data_x, long *raw_data_y, long *raw_data_z);
 int is_ois_self_test(struct is_core *core);
 int is_ois_gpio_on(struct is_core *core);
 int is_ois_gpio_off(struct is_core *core);
+struct is_mcu *is_ois_get_mcu(struct is_core *core);
 int is_ois_get_module_version(struct is_ois_info **minfo);
 int is_ois_get_phone_version(struct is_ois_info **minfo);
 int is_ois_get_user_version(struct is_ois_info **uinfo);

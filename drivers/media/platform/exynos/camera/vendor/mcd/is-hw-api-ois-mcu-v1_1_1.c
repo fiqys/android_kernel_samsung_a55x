@@ -17,68 +17,50 @@
 #include <linux/delay.h>
 #include <soc/samsung/exynos-pmu-if.h>
 
-#include "is-sfr-ois-mcu-v1_1_1.h"
 #include "is-hw-api-ois-mcu.h"
-#include "is-vendor-ois.h"
+#include "is-vendor-ois-core.h"
+#include "is-vendor-ois-reg.h"
 #include "pablo-binary.h"
 #include "is-vendor.h"
 #include "pablo-debug.h"
 
-u32 is_mcu_get_reg_u32(enum ois_mcu_base_reg_index base, int cmd)
+u32 is_mcu_get_reg_u32(void __iomem *base, int cmd)
 {
 	u32 reg_value = 0;
-	struct is_core *core = is_get_is_core();
-	struct ois_mcu_dev *mcu = core->mcu;
-	void __iomem *reg = mcu->regs[base];
 
-	reg_value = is_hw_get_reg(reg, &ois_mcu_regs[cmd]);
+	reg_value = is_hw_get_reg(base, &ois_mcu_regs[cmd]);
 	dbg_ois("[GET_REG] reg:[%s][0x%04X], reg_value(R):[0x%08X]\n",
 		ois_mcu_regs[cmd].reg_name, ois_mcu_regs[cmd].sfr_offset, reg_value);
 	return reg_value;
 }
 
-void is_mcu_set_reg_u32(enum ois_mcu_base_reg_index base, int cmd, u32 val)
+void is_mcu_set_reg_u32(void __iomem *base, int cmd, u32 val)
 {
-	struct is_core *core = is_get_is_core();
-	struct ois_mcu_dev *mcu = core->mcu;
-	void __iomem *reg = mcu->regs[base];
-
-	is_hw_set_reg(reg, &ois_mcu_regs[cmd], val);
+	is_hw_set_reg(base, &ois_mcu_regs[cmd], val);
 	dbg_ois("[SET_REG] reg:[%s][0x%04X], reg_value(W):[0x%08X]\n",
 		ois_mcu_regs[cmd].reg_name, ois_mcu_regs[cmd].sfr_offset, val);
 }
 
-u8 is_mcu_get_reg_u8(enum ois_mcu_base_reg_index base, int cmd)
+u8 is_mcu_get_reg_u8(void __iomem *base, int cmd)
 {
 	u8 reg_value = 0;
-	struct is_core *core = is_get_is_core();
-	struct ois_mcu_dev *mcu = core->mcu;
-	void __iomem *reg = mcu->regs[base];
 
-	reg_value = is_hw_get_reg_u8(reg, &ois_mcu_regs[cmd]);
+	reg_value = is_hw_get_reg_u8(base, &ois_mcu_regs[cmd]);
 	dbg_ois("[GET_REG] reg:[%s][0x%04X], reg_value(R):[0x%08X]\n",
 		ois_mcu_regs[cmd].reg_name, ois_mcu_regs[cmd].sfr_offset, reg_value);
 	return reg_value;
 }
 
-void is_mcu_set_reg_u8(enum ois_mcu_base_reg_index base, int cmd, u8 val)
+void is_mcu_set_reg_u8(void __iomem *base, int cmd, u8 val)
 {
-	struct is_core *core = is_get_is_core();
-	struct ois_mcu_dev *mcu = core->mcu;
-	void __iomem *reg = mcu->regs[base];
-
-	is_hw_set_reg_u8(reg, &ois_mcu_regs[cmd], val);
+	is_hw_set_reg_u8(base, &ois_mcu_regs[cmd], val);
 	dbg_ois("[SET_REG] reg:[%s][0x%04X], reg_value(W):[0x%08X]\n",
 		ois_mcu_regs[cmd].reg_name, ois_mcu_regs[cmd].sfr_offset, val);
 }
 
-void is_mcu_hw_set_field(enum ois_mcu_base_reg_index base, int cmd, int field, u32 val)
+void is_mcu_hw_set_field(void __iomem *base, int cmd, int field, u32 val)
 {
-	struct is_core *core = is_get_is_core();
-	struct ois_mcu_dev *mcu = core->mcu;
-	void __iomem *reg = mcu->regs[base];
-
-	is_hw_set_field(reg, &ois_mcu_regs[cmd], &ois_mcu_fields[field], val);
+	is_hw_set_field(base, &ois_mcu_regs[cmd], &ois_mcu_fields[field], val);
 	dbg_ois("[SET_FIELD] reg:[%s][0x%04X], field:[%s] val(W):[%d]\n",
 		ois_mcu_regs[cmd].reg_name, ois_mcu_regs[cmd].sfr_offset, ois_mcu_fields[field].field_name, val);
 }
@@ -86,19 +68,31 @@ void is_mcu_hw_set_field(enum ois_mcu_base_reg_index base, int cmd, int field, u
 int __is_mcu_pmu_control(int on)
 {
 	int ret = 0;
-
+	int val = 0;
+	int retries = 15;
 	if (on)
 		ret = exynos_pmu_update(ois_mcu_regs[OIS_CPU_CONFIGURATION].sfr_offset,
 			pmu_ois_mcu_masks[OIS_CPU_CONFIGURATION].sfr_offset, 0x1);
-	else
+	else {
 		ret = exynos_pmu_update(ois_mcu_regs[OIS_CPU_CONFIGURATION].sfr_offset,
 			pmu_ois_mcu_masks[OIS_CPU_CONFIGURATION].sfr_offset, 0x0);
+		while (retries-- > 0) {
+			ret = exynos_pmu_read(ois_mcu_regs[OIS_CPU_STATES].sfr_offset, &val);
+			if (ret < 0)
+				err_mcu("Failed to read pmu (%d)", ret);
+			if ((val & 0xFF) == PMU_POWER_STATE_POWER_DOWN)
+				break;
+			usleep_range(200, 210);
+		}
+	}
+	if (ret)
+		err_mcu("Failed to write pmu (%d)", ret);
 
 	info_mcu("%s onoff = %d", __func__, on);
 	return ret;
 }
 
-int __is_mcu_core_control(enum ois_mcu_base_reg_index base, int on)
+int __is_mcu_core_control(void __iomem *base, int on)
 {
 	u32 val;
 
@@ -112,7 +106,7 @@ int __is_mcu_core_control(enum ois_mcu_base_reg_index base, int on)
 	return 0;
 }
 
-int __is_mcu_hw_enable(enum ois_mcu_base_reg_index base)
+int __is_mcu_hw_enable(void __iomem *base)
 {
 	int ret = 0;
 
@@ -131,7 +125,7 @@ int __is_mcu_hw_enable(enum ois_mcu_base_reg_index base)
 	return ret;
 }
 
-int __is_mcu_hw_set_clock_peri(enum ois_mcu_base_reg_index base)
+int __is_mcu_hw_set_clock_peri(void __iomem *base)
 {
 	int ret = 0;
 
@@ -142,7 +136,7 @@ int __is_mcu_hw_set_clock_peri(enum ois_mcu_base_reg_index base)
 	return ret;
 }
 
-int __is_mcu_hw_set_init_peri(enum ois_mcu_base_reg_index base)
+int __is_mcu_hw_set_init_peri(void __iomem *base)
 {
 	int ret = 0;
 	u32 recover_val = 0;
@@ -173,7 +167,7 @@ int __is_mcu_hw_set_init_peri(enum ois_mcu_base_reg_index base)
 	return ret;
 }
 
-int __is_mcu_hw_set_clear_peri(enum ois_mcu_base_reg_index base)
+int __is_mcu_hw_set_clear_peri(void __iomem *base)
 {
 	int ret = 0;
 	u32 recover_val = 0;
@@ -204,7 +198,7 @@ int __is_mcu_hw_set_clear_peri(enum ois_mcu_base_reg_index base)
 	return ret;
 }
 
-int __is_mcu_hw_reset_peri(enum ois_mcu_base_reg_index base, int onoff)
+int __is_mcu_hw_reset_peri(void __iomem *base, int onoff)
 {
 	int ret = 0;
 	u8 val = 0;
@@ -219,7 +213,7 @@ int __is_mcu_hw_reset_peri(enum ois_mcu_base_reg_index base, int onoff)
 	return ret;
 }
 
-int __is_mcu_hw_clear_peri(enum ois_mcu_base_reg_index base)
+int __is_mcu_hw_clear_peri(void __iomem *base)
 {
 	int ret = 0;
 
@@ -228,7 +222,7 @@ int __is_mcu_hw_clear_peri(enum ois_mcu_base_reg_index base)
 	return ret;
 }
 
-int __is_mcu_hw_disable(enum ois_mcu_base_reg_index base)
+int __is_mcu_hw_disable(void __iomem *base)
 {
 	int ret = 0;
 
@@ -288,7 +282,7 @@ unsigned int is_mcu_hw_g_irq_type(unsigned int state, enum mcu_event_type type)
 	return state & (1 << type);
 }
 
-unsigned int is_mcu_hw_g_irq_state(enum ois_mcu_base_reg_index base, bool clear)
+unsigned int is_mcu_hw_g_irq_state(void __iomem *base, bool clear)
 {
 	u32 src;
 
@@ -300,7 +294,7 @@ unsigned int is_mcu_hw_g_irq_state(enum ois_mcu_base_reg_index base, bool clear)
 
 }
 
-void __is_mcu_hw_s_irq_enable(enum ois_mcu_base_reg_index base, u32 intr_enable)
+void __is_mcu_hw_s_irq_enable(void __iomem *base, u32 intr_enable)
 {
 	is_mcu_set_reg_u32(base, OIS_CM0P_IRQ_ENABLE, (intr_enable & 0xF));
 }
@@ -404,3 +398,14 @@ int __is_mcu_hw_peri2_dump(void __iomem *base)
 	return 0;
 }
 
+void __is_mcu_hw_show_peri_status(void __iomem *base)
+{
+	u32 i = 0;
+	u32 reg_value = 0;
+
+	for (i = OIS_PERI_CON_CTRL; i <= OIS_PERI2_PUD_CTRL; i++) {
+		reg_value = is_hw_get_reg(base, &ois_mcu_regs[i]);
+		info_mcu("reg:[%s][0x%04X], reg_value(R):[0x%08X]\n",
+			ois_mcu_regs[i].reg_name, ois_mcu_regs[i].sfr_offset, reg_value);
+	}
+}

@@ -5692,7 +5692,7 @@ static void slsi_append_reg_rule_v2(struct slsi_dev *sdev, struct regdb_file_reg
 	desc_ie->rule_flags = reg_rule->flags & 0xFF;
 }
 
-int slsi_mlme_set_country(struct slsi_dev *sdev, char *alpha2)
+int slsi_mlme_set_country_with_filter(struct slsi_dev *sdev, char *alpha2, bool disable_unii1_unii2a, bool disable_12_13)
 {
 	struct sk_buff    *req;
 	struct sk_buff    *cfm;
@@ -5759,17 +5759,28 @@ int slsi_mlme_set_country(struct slsi_dev *sdev, char *alpha2)
 
 	if (rules_len) {
 		for (i = 0; i < sdev->regdb.country[country_index].collection->reg_rule_num; i++) {
-			if (sdev->regdb.country[country_index].collection->reg_rule[i]->freq_range->start_freq >= 57000)
+			struct regdb_file_reg_rule reg_rule = *sdev->regdb.country[country_index].collection->reg_rule[i];
+			struct regdb_file_freq_range reg_rule_freq_range = *sdev->regdb.country[country_index].collection->reg_rule[i]->freq_range;
+			reg_rule.freq_range = &reg_rule_freq_range;
+
+			if (reg_rule_freq_range.start_freq >= 57000)
 				continue;
 
+			if (disable_unii1_unii2a &&
+			   ((reg_rule_freq_range.start_freq >= 5170 && reg_rule_freq_range.end_freq <= 5250) ||
+			   (reg_rule_freq_range.start_freq >= 5250 && reg_rule_freq_range.start_freq <= 5330)))
+				continue;
+
+			if (disable_12_13 &&
+			   (reg_rule_freq_range.start_freq >= 2402 && reg_rule_freq_range.start_freq <= 2482)) {
+				if (reg_rule_freq_range.end_freq >= 2472)
+					reg_rule_freq_range.end_freq = 2472;
+			}
+
 			if (subband_desc_supp)
-				slsi_append_reg_rule_v2(sdev,
-							sdev->regdb.country[country_index].collection->reg_rule[i],
-							req);
+				slsi_append_reg_rule_v2(sdev, &reg_rule, req);
 			else
-				slsi_append_reg_rule_v1(sdev,
-							sdev->regdb.country[country_index].collection->reg_rule[i],
-							req);
+				slsi_append_reg_rule_v1(sdev, &reg_rule, req);
 		}
 	}
 
@@ -5787,6 +5798,11 @@ int slsi_mlme_set_country(struct slsi_dev *sdev, char *alpha2)
 
 	kfree_skb(cfm);
 	return 0;
+}
+
+int slsi_mlme_set_country(struct slsi_dev *sdev, char *alpha2)
+{
+	return slsi_mlme_set_country_with_filter(sdev, alpha2, false, false);
 }
 
 int slsi_mlme_configure_monitor_mode(struct slsi_dev *sdev, struct net_device *dev, struct cfg80211_chan_def *chandef)
@@ -6742,8 +6758,7 @@ int slsi_mlme_set_scan_timing_req(struct slsi_dev *sdev, struct net_device *dev,
 	return ret;
 }
 
-int slsi_mlme_set_low_latency_mode_req(struct slsi_dev *sdev, struct net_device *dev, u16 latency_mode,
-				       u16 soft_roaming_scans_allowed)
+int slsi_mlme_set_low_latency_mode_req(struct slsi_dev *sdev, struct net_device *dev, u16 latency_mode)
 {
 	struct netdev_vif *ndev_vif = netdev_priv(dev);
 	struct sk_buff    *req;
@@ -6765,7 +6780,8 @@ int slsi_mlme_set_low_latency_mode_req(struct slsi_dev *sdev, struct net_device 
 		return -EIO;
 	fapi_set_u16(req, u.mlme_set_low_latency_mode_req.low_latency_mode, latency_mode);
 	fapi_set_u16(req, u.mlme_set_low_latency_mode_req.power_save_configuration, power_save_conf);
-	fapi_set_u16(req, u.mlme_set_low_latency_mode_req.soft_roaming_scans_allowed, soft_roaming_scans_allowed);
+	/* soft_roaming_scans_allowed is always true. This will be changed as reserved in near future */
+	fapi_set_u16(req, u.mlme_set_low_latency_mode_req.soft_roaming_scans_allowed, 1);
 
 	cfm = slsi_mlme_req_cfm(sdev, NULL, req, MLME_SET_LOW_LATENCY_MODE_CFM);
 	if (!cfm)

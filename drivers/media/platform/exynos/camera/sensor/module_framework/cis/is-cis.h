@@ -109,10 +109,11 @@ struct sensor_cis_mode_info {
 	u16 max_cit_margin;
 	u16 align_cit;
 	u16 align_fll;
+	u16 offset_cit;
 	u16 fine_integration_time;
-	u16 cit_constrait;
 
 	bool use_mode_analog_gain;
+	bool dual_tline_mode;
 	bool use_isp_dgain;
 	bool wb_gain_support;
 	bool remosaic_mode;

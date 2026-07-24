@@ -1366,7 +1366,7 @@ static int sensor_module_probe_i2c(struct platform_device *pdev)
 	int ret = 0;
 	struct is_core *core;
 	struct v4l2_subdev *subdev_module;
-	struct is_module_enum *module;
+	struct is_module_enum *module = NULL;
 	struct is_device_sensor *device;
 	struct sensor_open_extended *ext;
 	struct exynos_platform_is_module *pdata;
@@ -1484,8 +1484,7 @@ static int sensor_module_probe_i2c(struct platform_device *pdev)
 	}
 
 	/* Sensor peri */
-	module->private_data = devm_kzalloc(&pdev->dev,
-		sizeof(struct is_device_sensor_peri), GFP_KERNEL);
+	module->private_data = pablo_zalloc(sizeof(struct is_device_sensor_peri), GFP_KERNEL);
 	if (!module->private_data) {
 		dev_err(&pdev->dev, "is_device_sensor_peri is NULL");
 		ret = -ENOMEM;
@@ -1610,7 +1609,9 @@ static int sensor_module_probe_i2c(struct platform_device *pdev)
 
 p_err:
 	probe_info("%s(%d)\n", __func__, ret);
-	kfree(pdata);
+	if (module && module->private_data)
+		pablo_free(module->private_data);
+	pablo_free(pdata);
 
 	return ret;
 }

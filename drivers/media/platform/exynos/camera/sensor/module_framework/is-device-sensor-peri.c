@@ -21,6 +21,7 @@
 #include "is-device-csi.h"
 #include "is-cis.h"
 #include "is-vendor.h"
+#include "is-vendor-ois-core.h"
 #if defined(CONFIG_CAMERA_USE_INTERNAL_MCU)
 #include "is-vendor-ois-internal-mcu.h"
 #endif
@@ -386,10 +387,11 @@ void is_sensor_flash_fire_work(struct work_struct *data)
 	device = v4l2_get_subdev_hostdata(subdev_flash);
 	FIMC_BUG_VOID(!device);
 
-	mutex_lock(&sensor_peri->cis.control_lock);
+	mutex_lock(&sensor_peri->cis.stream_off_lock);
 
 	if (!sensor_peri->cis.cis_data->stream_on) {
 		warn("[%s] already stream off\n", __func__);
+		mutex_unlock(&sensor_peri->cis.stream_off_lock);
 		goto already_stream_off;
 	}
 
@@ -397,16 +399,21 @@ void is_sensor_flash_fire_work(struct work_struct *data)
 	ret = CALL_CISOPS(&sensor_peri->cis, cis_stream_off, sensor_peri->subdev_cis);
 	if (ret < 0) {
 		err("[%s] stream off fail\n", __func__);
+		mutex_unlock(&sensor_peri->cis.stream_off_lock);
 		goto fail_cis_stream_off;
 	}
 
+	mutex_unlock(&sensor_peri->cis.stream_off_lock);
+
+	mutex_lock(&sensor_peri->cis.control_lock);
 	ret = CALL_CISOPS(&sensor_peri->cis, cis_wait_streamoff, sensor_peri->subdev_cis);
 	if (ret < 0) {
 		err("[%s] wait stream off fail\n", __func__);
+		mutex_unlock(&sensor_peri->cis.control_lock);
 		goto fail_cis_stream_off;
 	}
 
-	dbg_flash("[%s] steram off done\n", __func__);
+	dbg_flash("[%s] stream off done\n", __func__);
 
 	/* flash setting */
 
@@ -567,9 +574,10 @@ void is_sensor_flash_fire_work(struct work_struct *data)
 	if (ret < 0)
 		err("[%s] sensor wait stream on fail\n", __func__);
 
+	mutex_unlock(&sensor_peri->cis.control_lock);
 fail_cis_stream_off:
 already_stream_off:
-	mutex_unlock(&sensor_peri->cis.control_lock);
+	dbg_flash("[%s] X\n", __func__);
 }
 
 IS_TIMER_FUNC(is_sensor_flash_expire_handler)
@@ -1289,15 +1297,18 @@ void is_sensor_long_term_mode_set_work(struct work_struct *data)
 	}
 
 	/* Sensor stream off */
+	mutex_lock(&sensor_peri->cis.stream_off_lock);
 	ret = CALL_CISOPS(cis, cis_stream_off, subdev_cis);
 	if (ret < 0) {
-		err("[%s] stream off fail\n", __func__);
+		err("[%s] stream off fail", __func__);
+		mutex_unlock(&sensor_peri->cis.stream_off_lock);
 		return;
 	}
+	mutex_unlock(&sensor_peri->cis.stream_off_lock);
 
 	ret = CALL_CISOPS(cis, cis_wait_streamoff, subdev_cis);
 	if (ret < 0) {
-		err("[%s] stream off fail\n", __func__);
+		err("[%s] wait stream off fail", __func__);
 		return;
 	}
 
@@ -1944,7 +1955,23 @@ int is_sensor_peri_s_stream(struct is_device_sensor *device,
 		if (ret < 0)
 			err("err!!! cis update seamless state ret(%d)", ret);
 
-		ret = CALL_CISOPS(cis, cis_stream_on, subdev_cis);
+		/*W/A only for front camera when error happen in CSIS*/
+		if (test_bit(IS_SENSOR_ERR_RECOVERY, &device->state) && device->device_id == 1) {
+			err("[%s]: sensor cis_recover_stream_on test start %d", __func__, ret);
+			sensor_cis_recover_i2c_fail(subdev_cis);
+			msleep(15);
+
+			if (cis->cis_ops->cis_recover_stream_on) {
+				ret = CALL_CISOPS(cis, cis_recover_stream_on, subdev_cis);
+				if (ret < 0)
+					err("[%s]: cis_recover_stream_on fail", __func__);
+			}
+			clear_bit(IS_SENSOR_ERR_RECOVERY, &device->state);
+			err("[%s]: sensor cis_recover_stream_on test end %d", __func__, ret);
+		} else {
+			ret = CALL_CISOPS(cis, cis_stream_on, subdev_cis);
+		}
+
 		if (ret < 0) {
 			err("[%s]: sensor stream on fail\n", __func__);
 #if IS_ENABLED(CONFIG_SEC_ABC)

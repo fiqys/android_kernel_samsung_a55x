@@ -287,9 +287,11 @@ static void test_mxman_logs(struct kunit *test)
 	struct fwhdr_if *fw_if;
 	struct scsc_log_collector_client collect_client;
 
-	kunit_mxman_logring_register_observer(NULL, NULL);
+	kunit_mxman_logring_register_observer(NULL, NULL, 1);
+	kunit_mxman_logring_register_observer(NULL, NULL, 0);
 
-	kunit_mxman_logring_unregister_observer(NULL, NULL);
+	kunit_mxman_logring_unregister_observer(NULL, NULL, 1);
+	kunit_mxman_logring_unregister_observer(NULL, NULL, 0);
 
 	mx = test_alloc_mxman(test);
 	mx->start_dram = ((void *)1);

@@ -39,8 +39,9 @@
 #include "is-hw-api-ois-mcu.h"
 #include "is-vendor-ois-internal-mcu.h"
 #include "is-vendor-ois.h"
-#include "is-device-ois.h"
-#include "is-sfr-ois-mcu-v1_1_1.h"
+#include "is-vendor-ois-core.h"
+#include "is-vendor-ois-reg.h"
+#include "is-device-ois_common.h"
 #ifdef CONFIG_AF_HOST_CONTROL
 #include "is-device-af.h"
 #endif
@@ -48,10 +49,76 @@
 #include "is-sec-define.h"
 
 static const struct v4l2_subdev_ops subdev_ops;
-#if !defined(OIS_DUAL_CAL_DEFAULT_VALUE_TELE) && defined(CAMERA_2ND_OIS)
-static struct mcu_efs_info efs_info;
-#endif
-u64 timestampboot;
+
+int is_ois_internal_mcu_read_u8(int cmd, u8 *data) {
+	struct is_core *core = is_get_is_core();
+	struct ois_mcu_dev *mcu = core->mcu;
+	void __iomem *reg = mcu->regs[OM_REG_CORE];
+
+	*data = is_hw_get_reg_u8(reg, &ois_mcu_regs[cmd]);
+
+	dbg_ois("[GET_REG] reg:[%s][0x%04X], reg_value(R):[0x%02X]\n",
+		ois_mcu_regs[cmd].reg_name, ois_mcu_regs[cmd].sfr_offset, *data);
+
+	return 0;
+}
+
+int is_ois_internal_mcu_read_multi(int cmd, u8 *data, size_t size)
+{
+	int i;
+
+	for (i = 0; i < size; i++) {
+		dbg_ois("[GET_REG] reg:[%s][0x%04X], reg_value(R):[0x%02X]\n",
+			ois_mcu_regs[cmd].reg_name, ois_mcu_regs[cmd].sfr_offset + i, data[i]);
+	}
+
+	return 0;
+}
+
+int is_ois_internal_mcu_read_u16(int cmd, u8 *data)
+{
+	return is_ois_internal_mcu_read_multi(cmd, data, 2);
+}
+
+int is_ois_internal_mcu_write_u8(int cmd, u8 data)
+{
+	struct is_core *core = is_get_is_core();
+	struct ois_mcu_dev *mcu = core->mcu;
+	void __iomem *reg = mcu->regs[OM_REG_CORE];
+
+	is_hw_set_reg_u8(reg, &ois_mcu_regs[cmd], data);
+
+	dbg_ois("[SET_REG] reg:[%s][0x%04X], reg_value(W):[0x%02X]\n",
+		ois_mcu_regs[cmd].reg_name, ois_mcu_regs[cmd].sfr_offset, data);
+
+	return 0;
+}
+
+int is_ois_internal_mcu_write_multi(int cmd, u8 *data, size_t size)
+{
+	int i;
+
+	for (i = 0 ; i < size; i++) {
+		dbg_ois("[SET_REG] reg:[%s][0x%04X], reg_value(W):[0x%02X]\n",
+			ois_mcu_regs[cmd].reg_name, ois_mcu_regs[cmd].sfr_offset + i, data[i]);
+	}
+
+	return 0;
+}
+
+int is_ois_internal_mcu_write_u16(int cmd, u8 *data)
+{
+	return is_ois_internal_mcu_write_multi(cmd, data, 2);
+}
+
+static struct ois_comm_ops internal_mcu_ops = {
+	.read_u8 = is_ois_internal_mcu_read_u8,
+	.read_u16 = is_ois_internal_mcu_read_u16,
+	.read_multi = is_ois_internal_mcu_read_multi,
+	.write_u8 = is_ois_internal_mcu_write_u8,
+	.write_u16 = is_ois_internal_mcu_write_u16,
+	.write_multi = is_ois_internal_mcu_write_multi,
+};
 
 static int is_vendor_ois_clk_get(struct ois_mcu_dev *mcu)
 {
@@ -139,21 +206,23 @@ static int is_vendor_ois_runtime_resume(struct device *dev)
 	info_mcu("%s E\n", __func__);
 
 	ret = is_vendor_ois_clk_get(mcu);
-	if (ret)
+	if (ret) {
+		err_mcu("Failed to get ois mcu clk");
 		return ret;
+	}
 
 	ret = is_vendor_ois_clk_enable(mcu);
 
 	ret |= __is_mcu_pmu_control(1);
 	usleep_range(1000, 1100);
 
-	__is_mcu_hw_enable(OM_REG_SFR);
-	ret |= __is_mcu_hw_reset_peri(OM_REG_PERI1, 0); /* clear USI reset reg USI10 */
+	__is_mcu_hw_enable(mcu->regs[OM_REG_SFR]);
+	ret |= __is_mcu_hw_reset_peri(mcu->regs[OM_REG_PERI1], 0); /* clear USI reset reg USI10 */
 	usleep_range(2000, 2100);
-	ret |= __is_mcu_hw_reset_peri(OM_REG_PERI2, 0); /* clear USI reset reg USI09 */
+	ret |= __is_mcu_hw_reset_peri(mcu->regs[OM_REG_PERI2], 0); /* clear USI reset reg USI09 */
 	usleep_range(2000, 2100);
-	ret |= __is_mcu_hw_set_init_peri(OM_REG_PERI_SETTING); /* GPP1, GPP2 setting */
-	ret |= __is_mcu_hw_set_clock_peri(OM_REG_PERI1); /* set i2c clock to 1MH */
+	ret |= __is_mcu_hw_set_init_peri(mcu->regs[OM_REG_PERI_SETTING]); /* GPP1, GPP2 setting */
+	ret |= __is_mcu_hw_set_clock_peri(mcu->regs[OM_REG_PERI1]); /* set i2c clock to 1MH */
 
 	clear_bit(OM_HW_SUSPENDED, &mcu->state);
 
@@ -169,13 +238,13 @@ static int is_vendor_ois_runtime_suspend(struct device *dev)
 
 	info_mcu("%s E\n", __func__);
 
-	ret = __is_mcu_hw_disable(OM_REG_SFR);
-	ret |= __is_mcu_hw_set_clear_peri(OM_REG_PERI_SETTING); /* GPP1, GPP2 setting */
+	__is_mcu_hw_disable(mcu->regs[OM_REG_SFR]);
+	ret |= __is_mcu_hw_set_clear_peri(mcu->regs[OM_REG_PERI_SETTING]); /* GPP1, GPP2 setting */
 	usleep_range(2000, 2100); //TEMP_2020 Need to be checked
-	ret |= __is_mcu_hw_reset_peri(OM_REG_PERI1, 1); /* clear USI reset reg USI10 */
-	ret |= __is_mcu_hw_reset_peri(OM_REG_PERI2, 1); /* clear USI reset reg USI09 */
-	ret |= __is_mcu_hw_clear_peri(OM_REG_PERI1);
-	ret |= __is_mcu_hw_clear_peri(OM_REG_PERI2);
+	ret |= __is_mcu_hw_reset_peri(mcu->regs[OM_REG_PERI1], 1); /* clear USI reset reg USI10 */
+	ret |= __is_mcu_hw_reset_peri(mcu->regs[OM_REG_PERI2], 1); /* clear USI reset reg USI09 */
+	ret |= __is_mcu_hw_clear_peri(mcu->regs[OM_REG_PERI1]);
+	ret |= __is_mcu_hw_clear_peri(mcu->regs[OM_REG_PERI2]);
 
 	is_vendor_ois_clk_disable(mcu);
 	is_vendor_ois_clk_put(mcu);
@@ -216,7 +285,7 @@ static irqreturn_t is_isr_is_vendor_ois(int irq, void *data)
 	unsigned int state;
 
 	mcu = (struct ois_mcu_dev *)data;
-	state = is_mcu_hw_g_irq_state(OM_REG_SFR, true);
+	state = is_mcu_hw_g_irq_state(mcu->regs[OM_REG_SFR], true);
 
 	/* FIXME: temp log for testing */
 	//info_mcu("IRQ: %d\n", state);
@@ -258,7 +327,7 @@ int is_vendor_ois_power_ctrl(struct ois_mcu_dev *mcu, int on)
 
 	if (on) {
 		if (!test_bit(OM_HW_SUSPENDED, &mcu->state)) {
-			warning_mcu("already power on");
+			warn_mcu("already power on");
 			goto p_err;
 		}
 #if defined(CONFIG_PM)
@@ -273,7 +342,7 @@ int is_vendor_ois_power_ctrl(struct ois_mcu_dev *mcu, int on)
 		mcu->current_power_mode = OIS_POWER_MODE_NONE;
 	} else {
 		if (test_bit(OM_HW_SUSPENDED, &mcu->state)) {
-			warning_mcu("already power off");
+			warn_mcu("already power off");
 			goto p_err;
 		}
 #if defined(CONFIG_PM)
@@ -306,7 +375,7 @@ int is_vendor_ois_load_binary(struct ois_mcu_dev *mcu)
 	BUG_ON(!mcu);
 
 	if (test_bit(OM_HW_FW_LOADED, &mcu->state)) {
-		warning_mcu("already fw was loaded");
+		warn_mcu("already fw was loaded");
 		return ret;
 	}
 
@@ -329,20 +398,20 @@ int is_vendor_ois_core_ctrl(struct ois_mcu_dev *mcu, int on)
 
 	if (on) {
 		if (test_bit(OM_HW_RUN, &mcu->state)) {
-			warning_mcu("already started");
+			warn_mcu("already started");
 			return ret;
 		}
-		__is_mcu_hw_s_irq_enable(OM_REG_SFR, 0x0);
+		__is_mcu_hw_s_irq_enable(mcu->regs[OM_REG_SFR], 0x0);
 		set_bit(OM_HW_RUN, &mcu->state);
 	} else {
 		if (!test_bit(OM_HW_RUN, &mcu->state)) {
-			warning_mcu("already stopped");
+			warn_mcu("already stopped");
 			return ret;
 		}
 		clear_bit(OM_HW_RUN, &mcu->state);
 	}
 
-	ret = __is_mcu_core_control(OM_REG_SFR, on);
+	ret = __is_mcu_core_control(mcu->regs[OM_REG_SFR], on);
 
 	info_mcu("%s: %d X\n", __func__, on);
 
@@ -361,8 +430,7 @@ int is_vendor_ois_dump(struct ois_mcu_dev *mcu, int type)
 	switch (type) {
 	case OM_REG_CORE:
 		__is_mcu_hw_cr_dump(mcu->regs[OM_REG_CORE]);
-		__is_mcu_hw_sram_dump(mcu->regs[OM_REG_CORE],
-			__is_mcu_get_sram_size());
+		__is_mcu_hw_sram_dump(mcu->regs[OM_REG_CORE], __is_mcu_get_sram_size());
 		break;
 	case OM_REG_PERI1:
 		__is_mcu_hw_peri1_dump(mcu->regs[OM_REG_PERI1]);
@@ -370,26 +438,14 @@ int is_vendor_ois_dump(struct ois_mcu_dev *mcu, int type)
 	case OM_REG_PERI2:
 		__is_mcu_hw_peri2_dump(mcu->regs[OM_REG_PERI2]);
 		break;
+	case OM_REG_PERI_SETTING:
+		__is_mcu_hw_show_peri_status(mcu->regs[OM_REG_PERI_SETTING]);
+		break;
 	default:
 		err_mcu("undefined type (%d)", type);
 	}
 
 	return ret;
-}
-
-void is_vendor_ois_reset_mcu(struct ois_mcu_dev *mcu)
-{
-#ifdef USE_TELE2_OIS_AF_COMMON_INTERFACE
-	/* write AF CTRL standby */
-	is_ois_write_u8(OIS_CMD_CTRL_AF, MCU_AF_MODE_STANDBY);
-	usleep_range(10000, 11000);
-#endif
-	/* clear ois err reg */
-	is_ois_write_u8(OIS_CMD_CHECKSUM, 0x0);
-#ifdef USE_TELE2_OIS_AF_COMMON_INTERFACE
-	/* write AF CTRL active */
-	is_ois_write_u8(OIS_CMD_CTRL_AF, MCU_AF_MODE_ACTIVE);
-#endif
 }
 
 #if IS_ENABLED(CONFIG_CAMERA_HW_BIG_DATA)
@@ -403,591 +459,6 @@ void is_vendor_ois_get_hw_param(struct cam_hw_param *hw_param, u16 i2c_error_reg
 		is_sec_get_hw_param(&hw_param, SENSOR_POSITION_REAR4);
 }
 #endif
-
-int is_vendor_ois_init(struct v4l2_subdev *subdev)
-{
-	int ret = 0;
-	u8 val = 0;
-	u8 error_reg[2] = {0, };
-	u8 gyro_orientation = 0;
-	u8 wx_pole = 0;
-	u8 wy_pole = 0;
-#if defined(CAMERA_2ND_OIS)
-	u8 tx_pole = 0;
-	u8 ty_pole = 0;
-#endif
-#if defined(CAMERA_3RD_OIS)
-	u8 t2x_pole = 0;
-	u8 t2y_pole = 0;
-#endif
-	int retries = 600;
-	int i = 0;
-	int scale_factor = OIS_GYRO_SCALE_FACTOR;
-	long gyro_data_x = 0, gyro_data_y = 0, gyro_data_z = 0, gyro_data_size = 0;
-	u8 gyro_x = 0, gyro_x2 = 0;
-	u8 gyro_y = 0, gyro_y2 = 0;
-	u8 gyro_z = 0, gyro_z2 = 0;
-#if defined(CAMERA_2ND_OIS)
-	int tele_cmd_xcoef = 0;
-	int tele_cmd_ycoef = 0;
-#ifndef OIS_DUAL_CAL_DEFAULT_VALUE_TELE
-	struct is_vendor_private *vendor_priv;
-	u8 tele_xcoef[2];
-	u8 tele_ycoef[2];
-	long efs_size = 0;
-#ifndef OIS_DUAL_CAL_DEFAULT_EEPROM_VALUE_TELE
-	int rom_id = 0;
-	char *cal_buf;
-	struct is_vendor_rom *rom_info = NULL;
-	u8 eeprom_xcoef[2];
-	u8 eeprom_ycoef[2];
-#endif
-#endif
-#endif /* CAMERA_2ND_OIS */
-	struct is_mcu *is_mcu = NULL;
-	struct ois_mcu_dev *mcu = NULL;
-	struct is_ois *ois = NULL;
-	struct is_module_enum *module = NULL;
-	struct is_device_sensor_peri *sensor_peri = NULL;
-	struct is_ois_info *ois_pinfo = NULL;
-	struct is_core *core = NULL;
-#if IS_ENABLED(CONFIG_CAMERA_HW_BIG_DATA)
-	struct cam_hw_param *hw_param = NULL;
-	u16 i2c_error_reg = 0;
-#endif
-
-	WARN_ON(!subdev);
-
-	info_mcu("%s E\n", __func__);
-
-	mcu = (struct ois_mcu_dev *)v4l2_get_subdevdata(subdev);
-	if (!mcu) {
-		err_mcu("mcu is NULL");
-		ret = -EINVAL;
-		return ret;
-	}
-
-	is_mcu = (struct is_mcu *)v4l2_get_subdev_hostdata(subdev);
-	if (!is_mcu) {
-		err_mcu("is_mcu is NULL");
-		ret = -EINVAL;
-		return ret;
-	}
-
-	sensor_peri = is_mcu->sensor_peri;
-	if (!sensor_peri) {
-		err_mcu("sensor_peri is NULL");
-		ret = -EINVAL;
-		return ret;
-	}
-
-	module = sensor_peri->module;
-	if (!module) {
-		err_mcu("module is NULL");
-		ret = -EINVAL;
-		return ret;
-	}
-
-	core = is_get_is_core();
-	if (!core) {
-		err_mcu("core is null");
-		ret = -EINVAL;
-		return ret;
-	}
-
-	is_ois_get_phone_version(&ois_pinfo);
-
-	ois = is_mcu->ois;
-	ois->pre_ois_mode = OPTICAL_STABILIZATION_MODE_OFF;
-	ois->ois_mode = sensor_peri->mcu->ois->ois_mode;
-	ois->coef = 0;
-	ois->pre_coef = 255;
-	ois->fadeupdown = false;
-	ois->initial_centering_mode = false;
-	ois->af_pos_wide = 0;
-#if defined(CAMERA_2ND_OIS)
-	ois->af_pos_tele = 0;
-#endif
-	ois->ois_power_mode = -1;
-	ois_pinfo->reset_check = false;
-
-	if (mcu->ois_hw_check) {
-		if (module->position == SENSOR_POSITION_REAR)
-			mcu->ois_wide_init = true;
-#if defined(CAMERA_2ND_OIS)
-		else if (module->position == SENSOR_POSITION_REAR2)
-			mcu->ois_tele_init = true;
-#endif
-#if defined(CAMERA_3RD_OIS)
-		else if (module->position == SENSOR_POSITION_REAR4)
-			mcu->ois_tele2_init = true;
-#endif
-
-		info_mcu("%s %d sensor(%d) mcu is already initialized.\n", __func__, __LINE__, module->position);
-		ois->ois_shift_available = true;
-	}
-
-	if (mcu->ois_hw_check && mcu->current_error_reg && (mcu->current_power_mode >= OIS_POWER_MODE_DUAL)) {
-		is_ois_read_u8(OIS_CMD_STATUS, &val);
-		if (val == 0x01) { //idle status check, 0x01 == idle.
-#if IS_ENABLED(CONFIG_CAMERA_HW_BIG_DATA)
-			i2c_error_reg = mcu->current_error_reg;
-			if (i2c_error_reg & MCU_I2C_ERR_VAL)
-				is_vendor_ois_get_hw_param(hw_param, i2c_error_reg);
-#endif
-			is_vendor_ois_reset_mcu(mcu);
-			is_vendor_ois_set_dev_ctrl(subdev, 1);
-			info_mcu("%s Process dev ctrl again in case of error reg detected.", __func__);
-			is_ois_read_u8(OIS_CMD_GYRO_RESULT, &error_reg[0]);
-			is_ois_read_u8(OIS_CMD_CHECKSUM, &error_reg[1]);
-			mcu->current_error_reg = (error_reg[1] << 8) | error_reg[0];
-#if IS_ENABLED(CONFIG_CAMERA_HW_BIG_DATA)
-			if (hw_param && (hw_param->i2c_ois_err_cnt > 0) && (mcu->current_error_reg == 0))
-				hw_param->i2c_ois_err_cnt--;
-#endif
-			info_mcu("%s error reg value = 0x%02x/0x%02x", __func__, error_reg[0], error_reg[1]);
-		} else {
-			info_mcu("%s Do not process dev ctrl again. Mcu is not idle.", __func__);
-		}
-	}
-
-	if (!mcu->ois_hw_check && test_bit(OM_HW_RUN, &mcu->state)) {
-		do {
-			is_ois_read_u8(OIS_CMD_STATUS, &val);
-			usleep_range(500, 510);
-			if (--retries < 0) {
-				err_mcu("Read status failed!!!!, data = 0x%04x", val);
-				break;
-			}
-		} while (val != 0x01);
-
-		is_ois_read_u8(OIS_CMD_GYRO_RESULT, &error_reg[0]);
-		is_ois_read_u8(OIS_CMD_CHECKSUM, &error_reg[1]);
-		mcu->current_error_reg = (error_reg[1] << 8) | error_reg[0];
-		info_mcu("%s error reg value = 0x%02x/0x%02x", __func__, error_reg[0], error_reg[1]);
-
-#if IS_ENABLED(CONFIG_CAMERA_HW_BIG_DATA)
-#if defined(CAMERA_3RD_OIS)
-		if (mcu->current_power_mode >= OIS_POWER_MODE_TRIPLE)
-#elif defined(CAMERA_2ND_OIS)
-		if (mcu->current_power_mode >= OIS_POWER_MODE_DUAL)
-#endif
-		{
-			i2c_error_reg = (error_reg[1] << 8) | error_reg[0];
-			if (i2c_error_reg & MCU_I2C_ERR_VAL) {
-				is_vendor_ois_get_hw_param(hw_param, i2c_error_reg);
-				if (hw_param) {
-					hw_param->i2c_ois_err_cnt++;
-					if (i2c_error_reg & MCU_REAR_3RD_OIS_ERR_REG)
-						hw_param->i2c_af_err_cnt++;
-				}
-			}
-		}
-#endif
-
-		/* MCU err reg recovery code */
-		if (core->mcu->need_reset_mcu && error_reg[1]) {
-			is_vendor_ois_reset_mcu(mcu);
-			core->mcu->need_reset_mcu = false;
-			info("[%s] clear ois reset flag.", __func__);
-		}
-
-		if (val == 0x01) {
-			/* loading gyro data */
-			gyro_data_size = is_vendor_ois_get_efs_data(mcu, &gyro_data_x, &gyro_data_y, &gyro_data_z);
-			info_mcu("Read Gyro offset data :  0x%04lx, 0x%04lx, 0x%04lx", gyro_data_x, gyro_data_y, gyro_data_z);
-			gyro_data_x = gyro_data_x * scale_factor;
-			gyro_data_y = gyro_data_y * scale_factor;
-			gyro_data_z = gyro_data_z * scale_factor;
-			gyro_data_x = gyro_data_x / 1000;
-			gyro_data_y = gyro_data_y / 1000;
-			gyro_data_z = gyro_data_z / 1000;
-			if (gyro_data_size > 0) {
-				gyro_x = gyro_data_x & 0xFF;
-				gyro_x2 = (gyro_data_x >> 8) & 0xFF;
-				gyro_y = gyro_data_y & 0xFF;
-				gyro_y2 = (gyro_data_y >> 8) & 0xFF;
-				gyro_z = gyro_data_z & 0xFF;
-				gyro_z2 = (gyro_data_z >> 8) & 0xFF;
-				is_ois_write_u8(OIS_CMD_RAW_DEBUG_X1, gyro_x);
-				is_ois_write_u8(OIS_CMD_RAW_DEBUG_X2, gyro_x2);
-				is_ois_write_u8(OIS_CMD_RAW_DEBUG_Y1, gyro_y);
-				is_ois_write_u8(OIS_CMD_RAW_DEBUG_Y2, gyro_y2);
-				is_ois_write_u8(OIS_CMD_RAW_DEBUG_Z1, gyro_z);
-				is_ois_write_u8(OIS_CMD_RAW_DEBUG_Z2, gyro_z2);
-				info_mcu("Write Gyro offset data :  0x%02x, 0x%02x, 0x%02x, 0x%02x, 0x%02x, 0x%02x", gyro_x, gyro_x2, gyro_y, gyro_y2, gyro_z, gyro_z2);
-			}
-			/* write wide xgg ygg xcoef ycoef */
-			if (ois_pinfo->wide_romdata.cal_mark[0] == 0xBB) {
-				for (i = 0; i < 4; i++) {
-					is_ois_write_u8(OIS_CMD_REAR_XGG1 + i, ois_pinfo->wide_romdata.xgg[i]);
-				}
-				for (i = 0; i < 4; i++) {
-					is_ois_write_u8(OIS_CMD_REAR_YGG1 + i, ois_pinfo->wide_romdata.ygg[i]);
-				}
-				for (i = 0; i < 2; i++) {
-#ifdef OIS_DUAL_CAL_DEFAULT_VALUE_WIDE
-					is_ois_write_u8(OIS_CMD_XCOEF_M1_1 + i, OIS_DUAL_CAL_DEFAULT_VALUE_WIDE);
-#else
-					is_ois_write_u8(OIS_CMD_XCOEF_M1_1 + i, ois_pinfo->wide_romdata.xcoef[i]);
-#endif
-				}
-				for (i = 0; i < 2; i++) {
-#ifdef OIS_DUAL_CAL_DEFAULT_VALUE_WIDE
-					is_ois_write_u8(OIS_CMD_YCOEF_M1_1 + i, OIS_DUAL_CAL_DEFAULT_VALUE_WIDE);
-#else
-					is_ois_write_u8(OIS_CMD_YCOEF_M1_1 + i, ois_pinfo->wide_romdata.ycoef[i]);
-#endif
-				}
-			} else {
-				info_mcu("%s Does not loading wide xgg/ygg data from eeprom.", __func__);
-			}
-
-#if defined(CAMERA_2ND_OIS)
-			/* write tele xgg ygg xcoef ycoef */
-			if (ois_pinfo->tele_tilt_romdata.cal_mark[0] == 0xBB) {
-#ifdef OIS_DUAL_CAL_USE_REAR3_DATA
-				tele_cmd_xcoef = OIS_CMD_XCOEF_M3_1;
-				tele_cmd_ycoef = OIS_CMD_YCOEF_M3_1;
-#else
-				tele_cmd_xcoef = OIS_CMD_XCOEF_M2_1;
-				tele_cmd_ycoef = OIS_CMD_YCOEF_M2_1;
-#endif
-
-#ifndef OIS_DUAL_CAL_DEFAULT_VALUE_TELE
-				vendor_priv = core->vendor.private_data;
-				efs_size = vendor_priv->tilt_cal_tele2_efs_size;
-				if (efs_size) {
-					efs_info.ois_hall_shift_x = *((s16 *)&vendor_priv->tilt_cal_tele2_efs_data[MCU_HALL_SHIFT_ADDR_X_M2]);
-					efs_info.ois_hall_shift_y = *((s16 *)&vendor_priv->tilt_cal_tele2_efs_data[MCU_HALL_SHIFT_ADDR_Y_M2]);
-					set_bit(IS_EFS_STATE_READ, &efs_info.efs_state);
-				} else {
-					clear_bit(IS_EFS_STATE_READ, &efs_info.efs_state);
-				}
-#endif
-				for (i = 0; i < 4; i++) {
-#if defined(CAMERA_2ND_OIS)
-					is_ois_write_u8(OIS_CMD_REAR2_XGG1 + i, ois_pinfo->tele_romdata.xgg[i]);
-#endif
-#if defined(CAMERA_3RD_OIS)
-					is_ois_write_u8(OIS_CMD_REAR3_XGG1 + i, ois_pinfo->tele2_romdata.xgg[i]);
-#endif
-				}
-				for (i = 0; i < 4; i++) {
-#if defined(CAMERA_2ND_OIS)
-					is_ois_write_u8(OIS_CMD_REAR2_YGG1 + i, ois_pinfo->tele_romdata.ygg[i]);
-#endif
-#if defined(CAMERA_3RD_OIS)
-					is_ois_write_u8(OIS_CMD_REAR3_YGG1 + i, ois_pinfo->tele2_romdata.ygg[i]);
-#endif
-				}
-#ifdef OIS_DUAL_CAL_DEFAULT_VALUE_TELE
-				is_ois_write_u8(tele_cmd_xcoef, OIS_DUAL_CAL_DEFAULT_VALUE_TELE);
-				is_ois_write_u8(tele_cmd_xcoef + 1, OIS_DUAL_CAL_DEFAULT_VALUE_TELE);
-				is_ois_write_u8(tele_cmd_ycoef, OIS_DUAL_CAL_DEFAULT_VALUE_TELE);
-				is_ois_write_u8(tele_cmd_ycoef + 1, OIS_DUAL_CAL_DEFAULT_VALUE_TELE);
-
-				info_mcu("%s tele use default coef value", __func__);
-#else
-				if (!test_bit(IS_EFS_STATE_READ, &efs_info.efs_state)) {
-#ifdef OIS_DUAL_CAL_DEFAULT_EEPROM_VALUE_TELE
-					is_ois_write_u8(tele_cmd_xcoef, OIS_DUAL_CAL_DEFAULT_EEPROM_VALUE_TELE);
-					is_ois_write_u8(tele_cmd_xcoef + 1, OIS_DUAL_CAL_DEFAULT_EEPROM_VALUE_TELE);
-					is_ois_write_u8(tele_cmd_ycoef, OIS_DUAL_CAL_DEFAULT_EEPROM_VALUE_TELE);
-					is_ois_write_u8(tele_cmd_ycoef + 1, OIS_DUAL_CAL_DEFAULT_EEPROM_VALUE_TELE);
-
-					info_mcu("%s tele use default eeprom coef value", __func__);
-#else
-					rom_id = is_vendor_get_rom_id_from_position(SENSOR_POSITION_REAR2);
-					is_sec_get_rom_info(&rom_info, rom_id);
-					cal_buf = rom_info->buf;
-
-					eeprom_xcoef[0] = *((u8 *)&cal_buf[rom_info->rom_dualcal_slave1_oisshift_x_addr]);
-					eeprom_xcoef[1] = *((u8 *)&cal_buf[rom_info->rom_dualcal_slave1_oisshift_x_addr + 1]);
-					eeprom_ycoef[0] = *((u8 *)&cal_buf[rom_info->rom_dualcal_slave1_oisshift_y_addr]);
-					eeprom_ycoef[1] = *((u8 *)&cal_buf[rom_info->rom_dualcal_slave1_oisshift_y_addr + 1]);
-
-					is_ois_write_u8(tele_cmd_xcoef, eeprom_xcoef[0]);
-					is_ois_write_u8(tele_cmd_xcoef + 1, eeprom_xcoef[1]);
-					is_ois_write_u8(tele_cmd_ycoef, eeprom_ycoef[0]);
-					is_ois_write_u8(tele_cmd_ycoef + 1, eeprom_ycoef[1]);
-
-					info_mcu("%s tele eeprom xcoef = %d/%d, ycoef = %d/%d", __func__, eeprom_xcoef[0], eeprom_xcoef[1],
-						eeprom_ycoef[0], eeprom_ycoef[1]);
-#endif
-				} else {
-#ifdef USE_OIS_SHIFT_FOR_12BIT
-					efs_info.ois_hall_shift_x >>= 2;
-					efs_info.ois_hall_shift_y >>= 2;
-#endif
-					tele_xcoef[0] = efs_info.ois_hall_shift_x & 0xFF;
-					tele_xcoef[1] = (efs_info.ois_hall_shift_x >> 8) & 0xFF;
-					tele_ycoef[0] = efs_info.ois_hall_shift_y & 0xFF;
-					tele_ycoef[1] = (efs_info.ois_hall_shift_y >> 8) & 0xFF;
-
-					is_ois_write_u8(tele_cmd_xcoef, tele_xcoef[0]);
-					is_ois_write_u8(tele_cmd_xcoef + 1, tele_xcoef[1]);
-					is_ois_write_u8(tele_cmd_ycoef, tele_ycoef[0]);
-					is_ois_write_u8(tele_cmd_ycoef + 1, tele_ycoef[1]);
-
-					info_mcu("%s tele efs xcoef = %d, ycoef = %d", __func__, efs_info.ois_hall_shift_x, efs_info.ois_hall_shift_y);
-				}
-#endif
-			} else {
-				info_mcu("%s Does not loading tele xgg/ygg data from eeprom.", __func__);
-			}
-#endif /* CAMERA_2ND_OIS */
-
-			/* enable dual cal */
-			is_ois_write_u8(OIS_CMD_ENABLE_DUALCAL, 0x01);
-
-			wx_pole = mcu->ois_gyro_direction[0];
-			wy_pole = mcu->ois_gyro_direction[1];
-			gyro_orientation = mcu->ois_gyro_direction[2];
-#if defined(CAMERA_2ND_OIS)
-			tx_pole = mcu->ois_gyro_direction[3];
-			ty_pole = mcu->ois_gyro_direction[4];
-#endif
-#if defined(CAMERA_3RD_OIS)
-			t2x_pole = mcu->ois_gyro_direction[5];
-			t2y_pole = mcu->ois_gyro_direction[6];
-#endif
-
-#if defined(CAMERA_3RD_OIS)
-			info_mcu("%s gyro direction list  %d,%d,%d,%d,%d,%d,%d\n", __func__, wx_pole, wy_pole, gyro_orientation,
-				tx_pole, ty_pole, t2x_pole, t2y_pole);
-#elif defined(CAMERA_2ND_OIS)
-			info_mcu("%s gyro direction list  %d,%d,%d,%d,%d\n", __func__, wx_pole, wy_pole, gyro_orientation,
-				tx_pole, ty_pole);
-#else
-			info_mcu("%s gyro direction list  %d,%d,%d\n", __func__, wx_pole, wy_pole, gyro_orientation);
-#endif
-
-			is_ois_write_u8(OIS_CMD_GYRO_POLA_X, wx_pole);
-			is_ois_write_u8(OIS_CMD_GYRO_POLA_Y, wy_pole);
-			is_ois_write_u8(OIS_CMD_GYRO_ORIENT, gyro_orientation);
-#if defined(CAMERA_2ND_OIS)
-			is_ois_write_u8(OIS_CMD_GYRO_POLA_X_M2, tx_pole);
-			is_ois_write_u8(OIS_CMD_GYRO_POLA_Y_M2, ty_pole);
-#endif
-#if defined(CAMERA_3RD_OIS)
-			is_ois_write_u8(OIS_CMD_GYRO_POLA_X_M3, t2x_pole);
-			is_ois_write_u8(OIS_CMD_GYRO_POLA_Y_M3, t2y_pole);
-#endif
-			info_mcu("%s gyro init data applied.\n", __func__);
-
-			mcu->ois_hw_check = true;
-
-			if (module->position == SENSOR_POSITION_REAR)
-				mcu->ois_wide_init = true;
-#if defined(CAMERA_2ND_OIS)
-			else if (module->position == SENSOR_POSITION_REAR2)
-				mcu->ois_tele_init = true;
-#endif
-#if defined(CAMERA_3RD_OIS)
-			else if (module->position == SENSOR_POSITION_REAR4) {
-				mcu->ois_tele2_init = true;
-				mcu->need_af_delay = true;
-			}
-#endif
-		}
-	}
-
-	info_mcu("%s sensor(%d) X\n", __func__, module->position);
-
-	return ret;
-}
-
-int is_vendor_ois_init_factory(struct v4l2_subdev *subdev)
-{
-	int ret = 0;
-	u8 val = 0;
-	int retries = 600;
-	u8 gyro_orientation = 0;
-	struct is_mcu *is_mcu = NULL;
-	struct ois_mcu_dev *mcu = NULL;
-	struct is_ois *ois = NULL;
-	struct is_ois_info *ois_pinfo = NULL;
-
-	WARN_ON(!subdev);
-
-	info_mcu("%s E\n", __func__);
-
-	mcu = (struct ois_mcu_dev *)v4l2_get_subdevdata(subdev);
-	if (!mcu) {
-		err_mcu("mcu is NULL");
-		ret = -EINVAL;
-		return ret;
-	}
-
-	is_mcu = (struct is_mcu *)v4l2_get_subdev_hostdata(subdev);
-	if (!is_mcu) {
-		err_mcu("is_mcu is NULL");
-		ret = -EINVAL;
-		return ret;
-	}
-
-	is_ois_get_phone_version(&ois_pinfo);
-
-	ois = is_mcu->ois;
-	ois->ois_mode = OPTICAL_STABILIZATION_MODE_OFF;
-	ois->pre_ois_mode = OPTICAL_STABILIZATION_MODE_OFF;
-	ois->coef = 0;
-	ois->pre_coef = 255;
-	ois->fadeupdown = false;
-	ois->initial_centering_mode = false;
-	ois->af_pos_wide = 0;
-#if defined(CAMERA_2ND_OIS)
-	ois->af_pos_tele = 0;
-#endif
-	ois->ois_power_mode = -1;
-	ois_pinfo->reset_check = false;
-
-	if (test_bit(OM_HW_RUN, &mcu->state)) {
-		do {
-			is_ois_read_u8(OIS_CMD_STATUS, &val);
-			usleep_range(500, 510);
-			if (--retries < 0) {
-				err_mcu("Read status failed!!!!, data = 0x%04x", val);
-				break;
-			}
-		} while (val != 0x01);
-	}
-
-	/* OIS SEL (wide : 1 , tele : 2, w/t : 3, tele2 : 4, triple : 7) */
-#if defined(CAMERA_3RD_OIS)
-	is_ois_write_u8(OIS_CMD_OIS_SEL, 0x07);
-#elif defined(CAMERA_2ND_OIS)
-	is_ois_write_u8(OIS_CMD_OIS_SEL, 0x03);
-#else
-	is_ois_write_u8(OIS_CMD_OIS_SEL, 0x01);
-#endif
-
-	gyro_orientation = mcu->ois_gyro_direction[2];
-	is_ois_write_u8(OIS_CMD_GYRO_ORIENT, gyro_orientation);
-
-	info_mcu("%s sensor(%d) X\n", __func__, ois->device);
-	return ret;
-}
-
-#if defined(CAMERA_3RD_OIS)
-void is_vendor_ois_init_rear2(struct is_core *core)
-{
-	u8 val = 0;
-	int retries = 600;
-	struct ois_mcu_dev *mcu = NULL;
-
-	mcu = core->mcu;
-
-	info_mcu("%s : E\n", __func__);
-
-	/* check ois status */
-	do {
-		is_ois_read_u8(OIS_CMD_STATUS, &val);
-		usleep_range(500, 510);
-		if (--retries < 0) {
-			err_mcu("Read status failed!!!!, data = 0x%04x", val);
-			break;
-		}
-	} while (val != 0x01);
-
-	/* set power mode (wide : 1 , tele : 2, w/t : 3, tele2 : 4, triple : 7) */
-	is_ois_write_u8(OIS_CMD_OIS_SEL, 0x04);
-
-	info_mcu("%s : X\n", __func__);
-
-	return;
-}
-#endif /* CAMERA_3RD_OIS */
-
-int is_vendor_ois_deinit(struct v4l2_subdev *subdev)
-{
-	int ret = 0;
-	struct ois_mcu_dev *mcu = NULL;
-	struct is_mcu *is_mcu = NULL;
-	struct is_device_sensor_peri *sensor_peri = NULL;
-	struct is_module_enum *module = NULL;
-	struct is_core *core = NULL;
-	int retries = 50;
-	u8 val = 0;
-
-	WARN_ON(!subdev);
-
-	info_mcu("%s E\n", __func__);
-
-	mcu = (struct ois_mcu_dev *)v4l2_get_subdevdata(subdev);
-	if (!mcu) {
-		err_mcu("mcu subdev is NULL");
-		ret = -EINVAL;
-		return ret;
-	}
-
-	is_mcu = (struct is_mcu *)v4l2_get_subdev_hostdata(subdev);
-	if (!is_mcu) {
-		err_mcu("is_mcu is NULL");
-		ret = -EINVAL;
-		return ret;
-	}
-
-	sensor_peri = is_mcu->sensor_peri;
-	if (!sensor_peri) {
-		err_mcu("sensor_peri is NULL");
-		ret = -EINVAL;
-		return ret;
-	}
-
-	module = sensor_peri->module;
-	if (!module) {
-		err_mcu("module is NULL");
-		ret = -EINVAL;
-		return ret;
-	}
-
-	core = is_get_is_core();
-	if (!core) {
-		err_mcu("core is null");
-		ret = -EINVAL;
-		return ret;
-	}
-
-	if (module->position  == SENSOR_POSITION_REAR)
-		mcu->ois_wide_init = false;
-#if defined(CAMERA_2ND_OIS)
-	else if  (module->position  == SENSOR_POSITION_REAR2)
-		mcu->ois_tele_init = false;
-#endif
-#if defined(CAMERA_3RD_OIS)
-	else if  (module->position  == SENSOR_POSITION_REAR4)
-		mcu->ois_tele2_init = false;
-#endif
-	if (mcu->ois_hw_check) {
-		is_ois_write_u8(OIS_CMD_START, 0x00);
-		usleep_range(2000, 2100);
-		do {
-			is_ois_read_u8(OIS_CMD_STATUS, &val);
-			usleep_range(1000, 1100);
-			if (--retries < 0) {
-				err_mcu("Read status failed!!!!, data = 0x%04x", val);
-				break;
-			}
-		} while (val != 0x01);
-
-		mcu->ois_fadeupdown = false;
-		mcu->ois_hw_check = false;
-		mcu->need_af_delay = false;
-		mcu->is_mcu_active = false;
-		info_mcu("%s ois stop. sensor = (%d)X\n", __func__, module->position);
-	}
-
-	if (core->mcu->need_reset_mcu) {
-		core->mcu->need_reset_mcu = false;
-		info("[%s] clear ois reset flag.", __func__);
-	}
-
-	info_mcu("%s sensor = (%d)X\n", __func__, module->position);
-
-	return ret;
-}
 
 int is_vendor_ois_af_get_position(struct v4l2_subdev *subdev, struct v4l2_control *ctrl)
 {
@@ -1029,11 +500,11 @@ int is_vendor_ois_af_write_position(struct ois_mcu_dev *mcu, u32 val)
 	val_low = (val & 0x000F) << 4;
 
 #if defined(USE_TELE_OIS_AF_COMMON_INTERFACE)
-	is_ois_write_u8(OIS_CMD_POS1_REAR2_AF, &val_high);
-	is_ois_write_u8(OIS_CMD_POS2_REAR2_AF, &val_low);
+	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_POS1_REAR2_AF, &val_high);
+	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_POS2_REAR2_AF, &val_low);
 #elif defined(USE_TELE2_OIS_AF_COMMON_INTERFACE)
-	is_ois_write_u8(OIS_CMD_POS1_REAR3_AF, &val_high);
-	is_ois_write_u8(OIS_CMD_POS2_REAR3_AF, &val_low);
+	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_POS1_REAR3_AF, &val_high);
+	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_POS2_REAR3_AF, &val_low);
 #endif
 	usleep_range(2000, 2100);
 
@@ -1130,11 +601,11 @@ int is_vendor_ois_af_set_active(struct v4l2_subdev *subdev, int enable)
 			info_mcu("%s : set af delay\n", __func__);
 		}
 
-		is_ois_write_u8(OIS_CMD_CTRL_AF, MCU_AF_MODE_ACTIVE);
+		is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_CTRL_AF, MCU_AF_MODE_ACTIVE);
 		usleep_range(10000, 11000);
 		is_vendor_ois_af_init_position(mcu, actuator);
 	} else {
-		is_ois_write_u8(OIS_CMD_CTRL_AF, MCU_AF_MODE_STANDBY);
+		is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_CTRL_AF, MCU_AF_MODE_STANDBY);
 	}
 
 	info_mcu("%s : enable = %d X\n", __func__, enable);
@@ -1219,10 +690,10 @@ int is_vendor_ois_set_sleep_mode_folded_zoom(void)
 
 	mcu = core->mcu;
 
-	is_ois_read_u8(OIS_CMD_CTRL_AF, &state);
+	state = is_mcu_get_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_CTRL_AF);
 	state = state & MCU_AF_MODE_STANDBY;
 	if (state == MCU_AF_MODE_ACTIVE) {
-		is_ois_write_u8(OIS_CMD_CTRL_AF, MCU_AF_MODE_STANDBY);
+		is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_CTRL_AF, MCU_AF_MODE_STANDBY);
 		usleep_range(5000, 5010);
 	}
 
@@ -1232,97 +703,9 @@ int is_vendor_ois_set_sleep_mode_folded_zoom(void)
 }
 #endif
 
-#if defined(CAMERA_2ND_OIS)
-int is_vendor_ois_set_power_mode(struct v4l2_subdev *subdev, int forceMode)
-{
-	struct is_ois *ois = NULL;
-	struct ois_mcu_dev *mcu = NULL;
-	struct is_mcu *is_mcu = NULL;
-	bool camera_running;
-	bool camera_running2;
-#if defined(CAMERA_3RD_OIS)
-	bool camera_running4;
-#endif
-
-	mcu = (struct ois_mcu_dev*)v4l2_get_subdevdata(subdev);
-	if (!mcu) {
-		err_mcu("%s, mcu subdev is NULL", __func__);
-		return -EINVAL;
-	}
-
-	is_mcu = (struct is_mcu *)v4l2_get_subdev_hostdata(subdev);
-	if (!is_mcu) {
-		err_mcu("%s, is_mcu is NULL", __func__);
-		return -EINVAL;
-	}
-
-	ois = is_mcu->ois;
-	if (!ois) {
-		err_mcu("%s, ois subdev is NULL", __func__);
-		return -EINVAL;
-	}
-
-	info_mcu("%s : E\n", __func__);
-
-	camera_running = is_vendor_check_camera_running(SENSOR_POSITION_REAR);
-	camera_running2 = is_vendor_check_camera_running(SENSOR_POSITION_REAR2);
-#if defined(CAMERA_3RD_OIS)
-	camera_running4 = is_vendor_check_camera_running(SENSOR_POSITION_REAR4);
-#endif
-
-	/* OIS SEL (wide : 1 , tele : 2, w/t : 3, tele2 : 4, triple : 7) */
-#if defined(CAMERA_3RD_OIS)
-	if (forceMode == OIS_USE_UW_ONLY) {
-		is_ois_write_u8(OIS_CMD_OIS_SEL, 0x00);
-		ois->ois_power_mode = OIS_POWER_MODE_NONE;
-	} else if (camera_running && !camera_running2 && !camera_running4) { //TEMP_OLYMPUS ==> need to be changed based on camera scenario
-#ifdef USE_TELE2_OIS_AF_COMMON_INTERFACE
-		is_vendor_ois_set_sleep_mode_folded_zoom();
-#endif
-		is_ois_write_u8(OIS_CMD_OIS_SEL, 0x01);
-		ois->ois_power_mode = OIS_POWER_MODE_SINGLE_WIDE;
-		usleep_range(5000, 5010);
-	} else if (!camera_running && camera_running2 && !camera_running4) {
-		is_ois_write_u8(OIS_CMD_OIS_SEL, 0x02);
-		ois->ois_power_mode = OIS_POWER_MODE_SINGLE_TELE;
-	} else if (camera_running && camera_running2 && !camera_running4) {
-		is_ois_write_u8(OIS_CMD_OIS_SEL, 0x03);
-		ois->ois_power_mode = OIS_POWER_MODE_DUAL;
-	} else if (!camera_running && !camera_running2 && camera_running4) {
-		is_ois_write_u8(OIS_CMD_OIS_SEL, 0x04);
-		ois->ois_power_mode = OIS_POWER_MODE_SINGLE_TELE2;
-	} else {
-		is_ois_write_u8(OIS_CMD_OIS_SEL, 0x07);
-		ois->ois_power_mode = OIS_POWER_MODE_TRIPLE;
-	}
-#else
-	if (forceMode == OIS_USE_UW_ONLY) {
-		is_ois_write_u8(OIS_CMD_OIS_SEL, 0x00);
-		ois->ois_power_mode = OIS_POWER_MODE_NONE;
-	} else if (forceMode == OIS_USE_UW_WIDE) {
-		is_ois_write_u8(OIS_CMD_OIS_SEL, 0x01);
-		ois->ois_power_mode = OIS_POWER_MODE_SINGLE_WIDE;
-	} else if (camera_running && !camera_running2) {
-		is_ois_write_u8(OIS_CMD_OIS_SEL, 0x01);
-		ois->ois_power_mode = OIS_POWER_MODE_SINGLE_WIDE;
-	} else if (!camera_running && camera_running2) {
-		is_ois_write_u8(OIS_CMD_OIS_SEL, 0x02);
-		ois->ois_power_mode = OIS_POWER_MODE_SINGLE_TELE;
-	} else {
-		is_ois_write_u8(OIS_CMD_OIS_SEL, 0x03);
-		ois->ois_power_mode = OIS_POWER_MODE_DUAL;
-	}
-#endif
-	mcu->current_power_mode = ois->ois_power_mode;
-	info_mcu("%s ois power setting is %d X\n", __func__, ois->ois_power_mode);
-
-	return 0;
-}
-#endif
-
 void is_vendor_ois_device_ctrl(struct ois_mcu_dev *mcu, u8 value)
 {
-	is_ois_write_u8(OIS_CMD_DEVCTRL, value);
+	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_DEVCTRL, value);
 }
 
 int is_vendor_ois_set_dev_ctrl(struct v4l2_subdev *subdev, int forceMode)
@@ -1358,7 +741,7 @@ int is_vendor_ois_set_dev_ctrl(struct v4l2_subdev *subdev, int forceMode)
 				is_vendor_ois_device_ctrl(mcu, 0x01);
 			do {
 				usleep_range(500, 510);
-				is_ois_read_u8(OIS_CMD_DEVCTRL, &val);
+				val = is_mcu_get_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_DEVCTRL);
 				if (--retry < 0) {
 					err_mcu("Read status failed!!!!, data = 0x%04x", val);
 					break;
@@ -1391,27 +774,27 @@ int is_vendor_ois_bypass_read(struct ois_mcu_dev *mcu, u16 id, u16 reg, u8 reg_s
 	/* device id */
 	dev_id[0] = id & 0xFF;
 	dev_id[1] = (id >> 8) & 0xFF;
-	is_ois_write_u8(OIS_CMD_BYPASS_DEVICE_ID1, dev_id[0]);
-	is_ois_write_u8(OIS_CMD_BYPASS_DEVICE_ID2, dev_id[1]);
+	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_BYPASS_DEVICE_ID1, dev_id[0]);
+	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_BYPASS_DEVICE_ID2, dev_id[1]);
 
 	/* register address */
 	reg_add[0] = reg & 0xFF;
 	reg_add[1] = (reg >> 8) & 0xFF;
-	is_ois_write_u8(OIS_CMD_BYPASS_REG_ADD1, reg_add[0]);
-	is_ois_write_u8(OIS_CMD_BYPASS_REG_ADD2, reg_add[1]);
+	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_BYPASS_REG_ADD1, reg_add[0]);
+	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_BYPASS_REG_ADD2, reg_add[1]);
 
 	/* reg size */
-	is_ois_write_u8(OIS_CMD_BYPASS_REG_SIZE, reg_size);
+	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_BYPASS_REG_SIZE, reg_size);
 
 	/* data size */
-	is_ois_write_u8(OIS_CMD_BYPASS_DATA_SIZE, data_size);
+	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_BYPASS_DATA_SIZE, data_size);
 
 	/* run bypass mode */
 	mode = 0x02;
-	is_ois_write_u8(OIS_CMD_BYPASS_CTRL, mode);
+	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_BYPASS_CTRL, mode);
 
 	do {
-		is_ois_read_u8(OIS_CMD_BYPASS_CTRL, &rcvdata);
+		rcvdata = is_mcu_get_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_BYPASS_CTRL);
 		usleep_range(1000, 1100);
 		if (--retries < 0) {
 			err_mcu("read status failed!!!!, data = 0x%04x", rcvdata);
@@ -1421,7 +804,7 @@ int is_vendor_ois_bypass_read(struct ois_mcu_dev *mcu, u16 id, u16 reg, u8 reg_s
 
 	/* get data */
 	for (i = 0; i < data_size; i++) {
-		is_ois_read_u8(OIS_CMD_BYPASS_DATA_TRANSFER + i, &rcvdata);
+		rcvdata = is_mcu_get_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_BYPASS_DATA_TRANSFER + i);
 		*(buf + i) = rcvdata & 0xFF;
 	}
 
@@ -1444,32 +827,32 @@ int is_vendor_ois_bypass_write(struct ois_mcu_dev *mcu, u16 id, u16 reg, u8 reg_
 	/* device id */
 	dev_id[0] = id & 0xFF;
 	dev_id[1] = (id >> 8) & 0xFF;
-	is_ois_write_u8(OIS_CMD_BYPASS_DEVICE_ID1, dev_id[0]);
-	is_ois_write_u8(OIS_CMD_BYPASS_DEVICE_ID2, dev_id[1]);
+	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_BYPASS_DEVICE_ID1, dev_id[0]);
+	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_BYPASS_DEVICE_ID2, dev_id[1]);
 
 	/* register address */
 	reg_add[0] = reg& 0xFF;
 	reg_add[1] = (reg >> 8) & 0xFF;
-	is_ois_write_u8(OIS_CMD_BYPASS_REG_ADD1, reg_add[0]);
-	is_ois_write_u8(OIS_CMD_BYPASS_REG_ADD2, reg_add[1]);
+	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_BYPASS_REG_ADD1, reg_add[0]);
+	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_BYPASS_REG_ADD2, reg_add[1]);
 
 	/* reg size */
-	is_ois_write_u8(OIS_CMD_BYPASS_REG_SIZE, reg_size);
+	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_BYPASS_REG_SIZE, reg_size);
 
 	/* data size */
-	is_ois_write_u8(OIS_CMD_BYPASS_DATA_SIZE, data_size);
+	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_BYPASS_DATA_SIZE, data_size);
 
 	/* send data */
 	for (i = 0; i < data_size; i++) {
-		is_ois_write_u8(OIS_CMD_BYPASS_DATA_TRANSFER + i, *(buf + i) & 0xFF);
+		is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_BYPASS_DATA_TRANSFER + i, *(buf + i) & 0xFF);
 	}
 
 	/* run bypass mode */
 	mode = 0x02;
-	is_ois_write_u8(OIS_CMD_BYPASS_CTRL, mode);
+	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_BYPASS_CTRL, mode);
 
 	do {
-		is_ois_read_u8(OIS_CMD_BYPASS_CTRL, &rcvdata);
+		rcvdata = is_mcu_get_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_BYPASS_CTRL);
 		usleep_range(1000, 1100);
 		if (--retries < 0) {
 			err_mcu("read status failed!!!!, data = 0x%04x", rcvdata);
@@ -1507,7 +890,7 @@ int is_vendor_ois_check_cross_talk(struct v4l2_subdev *subdev, u16 *hall_data)
 	}
 
 	do {
-		is_ois_read_u8(OIS_CMD_STATUS, &val);
+		val = is_mcu_get_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_STATUS);
 		usleep_range(500, 510);
 		if (--retries < 0) {
 			err_mcu("Read status failed!!!!, data = 0x%04x", val);
@@ -1557,20 +940,20 @@ int is_vendor_ois_bypass_read_mode1(struct ois_mcu_dev *mcu, u8 id, u8 reg, u8 *
 	info_mcu("%s E\n", __func__);
 
 	/* device id */
-	is_ois_write_u8(OIS_CMD_BYPASS_DEVICE_ID1, id);
+	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_BYPASS_DEVICE_ID1, id);
 
 	/* register address */
-	is_ois_write_u8(OIS_CMD_BYPASS_DEVICE_ID2, reg);
+	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_BYPASS_DEVICE_ID2, reg);
 
 	/* data size */
-	is_ois_write_u8(OIS_CMD_BYPASS_REG_ADD1, data_size);
+	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_BYPASS_REG_ADD1, data_size);
 
 	/* run bypass mode */
 	mode = 0x01;
-	is_ois_write_u8(OIS_CMD_BYPASS_CTRL, mode);
+	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_BYPASS_CTRL, mode);
 
 	do {
-		is_ois_read_u8(OIS_CMD_BYPASS_CTRL, &rcvdata);
+		rcvdata = is_mcu_get_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_BYPASS_CTRL);
 		usleep_range(1000, 1100);
 		if (--retries < 0) {
 			err_mcu("read status failed!!!!, data = 0x%04x", rcvdata);
@@ -1580,7 +963,7 @@ int is_vendor_ois_bypass_read_mode1(struct ois_mcu_dev *mcu, u8 id, u8 reg, u8 *
 
 	/* get data */
 	for (i = 0; i < data_size; i++) {
-		is_ois_read_u8(OIS_CMD_BYPASS_REG_ADD2 + i, &rcvdata);
+		rcvdata = is_mcu_get_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_BYPASS_REG_ADD2 + i);
 		*(buf + i) = rcvdata & 0xFF;
 	}
 
@@ -1599,25 +982,25 @@ int is_vendor_ois_bypass_write_mode1(struct ois_mcu_dev *mcu, u8 id, u8 reg, u8 
 	info_mcu("%s E\n", __func__);
 
 	/* device id */
-	is_ois_write_u8(OIS_CMD_BYPASS_DEVICE_ID1, id);
+	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_BYPASS_DEVICE_ID1, id);
 
 	/* register address */
-	is_ois_write_u8(OIS_CMD_BYPASS_DEVICE_ID2, reg);
+	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_BYPASS_DEVICE_ID2, reg);
 
 	/* data size */
-	is_ois_write_u8(OIS_CMD_BYPASS_REG_ADD1, data_size);
+	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_BYPASS_REG_ADD1, data_size);
 
 	/* send data */
 	for (i = 0; i < data_size; i++) {
-		is_ois_write_u8(OIS_CMD_BYPASS_REG_ADD2 + i, *(buf + i) & 0xFF);
+		is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_BYPASS_REG_ADD2 + i, *(buf + i) & 0xFF);
 	}
 
 	/* run bypass mode */
 	mode = 0x01;
-	is_ois_write_u8(OIS_CMD_BYPASS_CTRL, mode);
+	is_mcu_set_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_BYPASS_CTRL, mode);
 
 	do {
-		is_ois_read_u8(OIS_CMD_BYPASS_CTRL, &rcvdata);
+		rcvdata = is_mcu_get_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_BYPASS_CTRL);
 		usleep_range(1000, 1100);
 		if (--retries < 0) {
 			err_mcu("read status failed!!!!, data = 0x%04x", rcvdata);
@@ -1666,7 +1049,7 @@ int is_vendor_ois_check_hall_cal(struct v4l2_subdev *subdev, u16 *hall_cal_data)
 	}
 
 	do {
-		is_ois_read_u8(OIS_CMD_STATUS, &val);
+		val = is_mcu_get_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_STATUS);
 		usleep_range(500, 510);
 		if (--retries < 0) {
 			err_mcu("Read status failed!!!!, data = 0x%04x", val);
@@ -1816,7 +1199,7 @@ int is_vendor_ois_read_ext_clock(struct v4l2_subdev *subdev, u32 *clock)
 	}
 
 	do {
-		is_ois_read_u8(OIS_CMD_STATUS, &val);
+		val = is_mcu_get_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_STATUS);
 		usleep_range(500, 510);
 		if (--retries < 0) {
 			err_mcu("Read status failed!!!!, data = 0x%04x", val);
@@ -1883,174 +1266,6 @@ request_err:
 	return ret;
 }
 
-#ifdef USE_OIS_HALL_DATA_FOR_VDIS
-int is_vendor_ois_get_hall_data(struct v4l2_subdev *subdev, struct is_ois_hall_data *halldata)
-{
-	int ret = 0;
-	struct ois_mcu_dev *mcu = NULL;
-	u8 val[4] = {0, };
-	u64 timeStamp = 0;
-	int val_sum = 0;
-	int max_cnt = 192;
-	int index = 0;
-	int i = 0;
-	int valid_cnt = 0;
-	u8 valid_num = 0;
-	u64 prev_timestampboot = timestampboot;
-
-	WARN_ON(!subdev);
-
-	mcu = (struct ois_mcu_dev *)v4l2_get_subdevdata(subdev);
-	if (!mcu) {
-		err_mcu("mcu is NULL");
-		ret = -EINVAL;
-		return ret;
-	}
-
-	/* SVDIS CTRL READ HALLDATA */
-	is_ois_write_u8(OIS_CMD_SVDIS_CTRL, 0x02);
-	usleep_range(150, 160);
-
-	/* S/W interrupt to MCU */
-	is_mcu_hw_set_field(OM_REG_SFR, OIS_CM0P_IRQ, F_OIS_CM0P_IRQ_REQ, 0x01);
-	usleep_range(200, 210);
-
-	/* get current AP time stamp (read irq timing) */
-	timestampboot = ktime_get_boottime_ns();
-
-	is_ois_read_u8(OIS_CMD_HALL_TIME_STAMP1, &val[0]);
-	is_ois_read_u8(OIS_CMD_HALL_TIME_STAMP2, &val[1]);
-	is_ois_read_u8(OIS_CMD_HALL_TIME_STAMP3, &val[2]);
-	is_ois_read_u8(OIS_CMD_HALL_TIME_STAMP4, &val[3]);
-	timeStamp =  ((uint64_t)val[3] << 24) | ((uint64_t)val[2] << 16) | ((uint64_t)val[1] << 8) | (uint64_t)val[0];
-	halldata->timeStamp = prev_timestampboot + (timeStamp * 1000);
-
-	is_ois_read_u8(OIS_CMD_HALL_VALID_NUMBER, &valid_num);
-	halldata->validData = valid_num;
-
-	valid_cnt = (int)valid_num * 8;
-	if (valid_cnt > max_cnt) {
-		valid_cnt = max_cnt;
-	}
-
-	/* Wide data */
-	for (i = 0; i < valid_cnt; i += 8) {
-		is_ois_read_u8(OIS_CMD_HALL_WIDE_X_ANG_0 + i, &val[0]);
-		is_ois_read_u8(OIS_CMD_HALL_WIDE_X_ANG_0 + i + 1, &val[1]);
-		val_sum = (val[1] << 8) | val[0];
-		halldata->xAngleWide[index] = val_sum;
-
-		is_ois_read_u8(OIS_CMD_HALL_WIDE_Y_ANG_0 + i, &val[0]);
-		is_ois_read_u8(OIS_CMD_HALL_WIDE_Y_ANG_0 + i + 1, &val[1]);
-		val_sum = (val[1] << 8) | val[0];
-		halldata->yAngleWide[index] = val_sum;
-
-		is_ois_read_u8(OIS_CMD_HALL_WIDE_X_ANGVEL_0 + i, &val[0]);
-		is_ois_read_u8(OIS_CMD_HALL_WIDE_X_ANGVEL_0 + i + 1, &val[1]);
-		val_sum = (val[1] << 8) | val[0];
-		halldata->xAngVelWide[index] = val_sum;
-
-		is_ois_read_u8(OIS_CMD_HALL_WIDE_Y_ANGVEL_0 + i, &val[0]);
-		is_ois_read_u8(OIS_CMD_HALL_WIDE_Y_ANGVEL_0 + i + 1, &val[1]);
-		val_sum = (val[1] << 8) | val[0];
-		halldata->yAngVelWide[index] = val_sum;
-		index++;
-
-		if (index >= NUM_OF_HALLDATA_AT_ONCE)
-			break;
-	}
-
-#if defined(CAMERA_2ND_OIS)
-	/* Tele data */
-	index = 0;
-
-	for (i = 0; i < valid_cnt; i += 8) {
-		is_ois_read_u8(OIS_CMD_HALL_TELE_X_ANG_0 + i, &val[0]);
-		is_ois_read_u8(OIS_CMD_HALL_TELE_X_ANG_0 + i + 1, &val[1]);
-		val_sum = (val[1] << 8) | val[0];
-		halldata->xAngleTele[index] = val_sum;
-
-		is_ois_read_u8(OIS_CMD_HALL_TELE_Y_ANG_0 + i, &val[0]);
-		is_ois_read_u8(OIS_CMD_HALL_TELE_Y_ANG_0 + i + 1, &val[1]);
-		val_sum = (val[1] << 8) | val[0];
-		halldata->yAngleTele[index] = val_sum;
-
-		is_ois_read_u8(OIS_CMD_HALL_TELE_X_ANGVEL_0 + i, &val[0]);
-		is_ois_read_u8(OIS_CMD_HALL_TELE_X_ANGVEL_0 + i + 1, &val[1]);
-		val_sum = (val[1] << 8) | val[0];
-		halldata->xAngVelTele[index] = val_sum;
-
-		is_ois_read_u8(OIS_CMD_HALL_TELE_Y_ANGVEL_0 + i, &val[0]);
-		is_ois_read_u8(OIS_CMD_HALL_TELE_Y_ANGVEL_0 + i + 1, &val[1]);
-		val_sum = (val[1] << 8) | val[0];
-		halldata->yAngVelTele[index] = val_sum;
-		index++;
-
-		if (index >= NUM_OF_HALLDATA_AT_ONCE)
-			break;
-	}
-#endif
-
-#if defined(CAMERA_3RD_OIS)
-	/* Tele2 data */
-	index = 0;
-
-	for (i = 0; i < valid_cnt; i += 8) {
-		is_ois_read_u8(OIS_CMD_HALL_TELE2_X_ANG_0 + i, &val[0]);
-		is_ois_read_u8(OIS_CMD_HALL_TELE2_X_ANG_0 + i + 1, &val[1]);
-		val_sum = (val[1] << 8) | val[0];
-		halldata->xAngleTele2[index] = val_sum;
-
-		is_ois_read_u8(OIS_CMD_HALL_TELE2_Y_ANG_0 + i, &val[0]);
-		is_ois_read_u8(OIS_CMD_HALL_TELE2_Y_ANG_0 + i + 1, &val[1]);
-		val_sum = (val[1] << 8) | val[0];
-		halldata->yAngleTele2[index] = val_sum;
-
-		is_ois_read_u8(OIS_CMD_HALL_TELE2_X_ANGVEL_0 + i, &val[0]);
-		is_ois_read_u8(OIS_CMD_HALL_TELE2_X_ANGVEL_0 + i + 1, &val[1]);
-		val_sum = (val[1] << 8) | val[0];
-		halldata->xAngVelTele2[index] = val_sum;
-
-		is_ois_read_u8(OIS_CMD_HALL_TELE2_Y_ANGVEL_0 + i, &val[0]);
-		is_ois_read_u8(OIS_CMD_HALL_TELE2_Y_ANGVEL_0 + i + 1, &val[1]);
-		val_sum = (val[1] << 8) | val[0];
-		halldata->yAngVelTele2[index] = val_sum;
-		index++;
-
-		if (index >= NUM_OF_HALLDATA_AT_ONCE)
-			break;
-	}
-#endif
-
-	/* Z-axis data */
-	index = 0;
-	valid_cnt = valid_cnt / 4;  //= valid * 2
-
-	for (i = 0; i < valid_cnt; i += 2) {
-		is_ois_read_u8(OIS_CMD_HALL_Z_ANGVEL_0 + i, &val[0]);
-		is_ois_read_u8(OIS_CMD_HALL_Z_ANGVEL_0 + i + 1, &val[1]);
-		val_sum = (val[1] << 8) | val[0];
-		halldata->zAngVel[index] = val_sum;
-		index++;
-
-		if (index >= NUM_OF_HALLDATA_AT_ONCE)
-			break;
-	}
-
-	/* delay between write irq & read irq */
-	usleep_range(250, 260);
-
-	/* SVDIS CTRL WRITE TIMESTAMP */
-	is_ois_write_u8(OIS_CMD_SVDIS_CTRL, 0x01);
-	usleep_range(300, 310);
-
-	/* S/W interrupt to MCU */
-	is_mcu_hw_set_field(OM_REG_SFR, OIS_CM0P_IRQ, F_OIS_CM0P_IRQ_REQ, 0x01);
-
-	return ret;
-}
-#endif
-
 bool is_vendor_ois_check_fw(struct is_core *core)
 {
 	long ret = 0;
@@ -2069,6 +1284,52 @@ bool is_vendor_ois_check_fw(struct is_core *core)
 
 	return true;
 }
+
+static struct is_ois_ops ois_ops_mcu = {
+	.ois_init = is_vendor_ois_init,
+	.ois_init_fac = is_vendor_ois_init_factory,
+#if defined(CAMERA_3RD_OIS)
+	.ois_init_rear2 = is_vendor_ois_init_rear2,
+#endif
+	.ois_deinit = is_vendor_ois_deinit,
+	.ois_set_mode = is_vendor_ois_set_mode,
+	.ois_shift_compensation = is_vendor_ois_shift_compensation,
+	.ois_self_test = is_vendor_ois_self_test,
+	.ois_auto_test = is_vendor_ois_auto_test_all,
+#if defined(CAMERA_2ND_OIS)
+	.ois_auto_test_rear2 = is_vendor_ois_auto_test_rear2,
+	.ois_set_power_mode = is_vendor_ois_set_power_mode,
+#endif
+	.ois_set_dev_ctrl = is_vendor_ois_set_dev_ctrl,
+	.ois_check_fw = is_vendor_ois_check_fw,
+	.ois_enable = is_vendor_ois_enable,
+	.ois_disable = is_vendor_ois_disable,
+	.ois_offset_test = is_vendor_ois_offset_test,
+	.ois_get_offset_data = is_vendor_ois_get_offset_data,
+	.ois_gyro_sleep = is_vendor_ois_gyro_sleep,
+	.ois_exif_data = is_vendor_ois_exif_data,
+	.ois_read_status = is_vendor_ois_read_status,
+	.ois_read_cal_checksum = is_vendor_ois_read_cal_checksum,
+	.ois_set_coef = is_vendor_ois_set_coef,
+	.ois_set_center = is_vendor_ois_set_centering,
+	.ois_read_mode = is_vendor_ois_read_mode,
+	.ois_calibration_test = is_vendor_ois_gyro_cal,
+	.ois_read_gyro_noise = is_vendor_ois_read_gyro_noise,
+#ifdef USE_TELE2_OIS_AF_COMMON_INTERFACE
+	.ois_set_af_active = is_vendor_ois_af_set_active,
+#endif
+	.ois_get_hall_pos = is_vendor_ois_get_hall_position,
+	.ois_check_cross_talk = is_vendor_ois_check_cross_talk,
+	.ois_check_hall_cal = is_vendor_ois_check_hall_cal,
+	.ois_check_valid = is_vendor_ois_check_valid,
+#ifdef USE_OIS_HALL_DATA_FOR_VDIS
+	.ois_get_hall_data = is_vendor_ois_get_hall_data,
+#endif
+	.ois_get_active = is_vendor_ois_get_active,
+	.ois_read_ext_clock = is_vendor_ois_read_ext_clock,
+	.ois_parsing_raw_data = is_vendor_ois_parsing_raw_data,
+	.ois_center_shift = is_vendor_ois_set_center_shift,
+};
 
 static const struct v4l2_subdev_core_ops core_ops = {
 	.init = is_vendor_ois_af_init,
@@ -2123,7 +1384,6 @@ static int is_vendor_ois_probe(struct platform_device *pdev)
 	bool support_photo_fastae = false;
 	bool skip_video_fastae = false;
 	bool off_during_uwonly_mode = false;
-	struct is_ois_ops *ois_ops_mcu;
 	const u32 *gyro_direction_spec;
 	u32 gyro_direction_len;
 
@@ -2174,7 +1434,7 @@ static int is_vendor_ois_probe(struct platform_device *pdev)
 		info_mcu("off_during_uwonly_mode not use");
 	}
 
-	mcu = devm_kzalloc(&pdev->dev, sizeof(struct ois_mcu_dev), GFP_KERNEL);
+	mcu = pablo_zalloc(sizeof(struct ois_mcu_dev), GFP_KERNEL);
 	if (!mcu)
 		return -ENOMEM;
 
@@ -2187,42 +1447,42 @@ static int is_vendor_ois_probe(struct platform_device *pdev)
 			probe_err("ois_gyro_direction read is fail(%d)", ret);
 	}
 
-	is_mcu = devm_kzalloc(&pdev->dev, sizeof(struct is_mcu) * sensor_id_len, GFP_KERNEL);
+	is_mcu = pablo_zalloc(sizeof(struct is_mcu) * sensor_id_len, GFP_KERNEL);
 	if (!mcu) {
 		err_mcu("fimc_is_mcu is NULL");
 		ret = -ENOMEM;
 		goto p_err;
 	}
 
-	subdev_mcu = devm_kzalloc(&pdev->dev, sizeof(struct v4l2_subdev) * sensor_id_len, GFP_KERNEL);
+	subdev_mcu = pablo_zalloc(sizeof(struct v4l2_subdev) * sensor_id_len, GFP_KERNEL);
 	if (!subdev_mcu) {
 		err_mcu("subdev_mcu is NULL");
 		ret = -ENOMEM;
 		goto p_err;
 	}
 
-	ois = devm_kzalloc(&pdev->dev, sizeof(struct is_ois) * sensor_id_len, GFP_KERNEL);
+	ois = pablo_zalloc(sizeof(struct is_ois) * sensor_id_len, GFP_KERNEL);
 	if (!ois) {
 		err_mcu("fimc_is_ois is NULL");
 		ret = -ENOMEM;
 		goto p_err;
 	}
 
-	subdev_ois = devm_kzalloc(&pdev->dev, sizeof(struct v4l2_subdev) * sensor_id_len, GFP_KERNEL);
+	subdev_ois = pablo_zalloc(sizeof(struct v4l2_subdev) * sensor_id_len, GFP_KERNEL);
 	if (!subdev_ois) {
 		err_mcu("subdev_ois is NULL");
 		ret = -ENOMEM;
 		goto p_err;
 	}
 
-	actuator = devm_kzalloc(&pdev->dev, sizeof(struct is_actuator), GFP_KERNEL);
+	actuator = pablo_zalloc(sizeof(struct is_actuator), GFP_KERNEL);
 	if (!actuator) {
 		err_mcu("actuator is NULL");
 		ret = -ENOMEM;
 		goto p_err;
 	}
 
-	subdev_actuator = devm_kzalloc(&pdev->dev, sizeof(struct v4l2_subdev), GFP_KERNEL);
+	subdev_actuator = pablo_zalloc(sizeof(struct v4l2_subdev), GFP_KERNEL);
 	if (!subdev_actuator) {
 		err_mcu("subdev_actuator is NULL");
 		ret = -ENOMEM;
@@ -2230,80 +1490,23 @@ static int is_vendor_ois_probe(struct platform_device *pdev)
 	}
 
 	mcu->dev = &pdev->dev;
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	if (!res) {
-		dev_err(mcu->dev, "[@] can't get memory resource\n");
-		return -ENODEV;
-	}
 
-	mcu->regs[OM_REG_CORE] = devm_ioremap(mcu->dev, res->start, resource_size(res));
-	if (!mcu->regs[OM_REG_CORE]) {
-		dev_err(&pdev->dev, "[@] ioremap failed\n");
-		ret = -ENOMEM;
-		goto err_ioremap;
-	}
-	mcu->regs_start[OM_REG_CORE] = res->start;
-	mcu->regs_end[OM_REG_CORE] = res->end;
+	for (int i = 0; i < OM_REG_MAX; i++) {
+		res = platform_get_resource(pdev, IORESOURCE_MEM, i);
+		if (!res) {
+			dev_err(mcu->dev, "[@] can't get memory resource\n");
+			return -ENODEV;
+		}
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
-	if (!res) {
-		dev_err(mcu->dev, "[@] can't get memory resource\n");
-		return -ENODEV;
+		mcu->regs[i] = devm_ioremap(mcu->dev, res->start, resource_size(res));
+		if (!mcu->regs[i]) {
+			dev_err(&pdev->dev, "[@] ioremap (%d) failed\n", i);
+			ret = -ENOMEM;
+			goto err_ioremap;
+		}
+		mcu->regs_start[i] = res->start;
+		mcu->regs_end[i] = res->end;
 	}
-
-	mcu->regs[OM_REG_PERI1] = devm_ioremap(mcu->dev, res->start, resource_size(res));
-	if (!mcu->regs[OM_REG_PERI1]) {
-		dev_err(&pdev->dev, "[@] ioremap failed\n");
-		ret = -ENOMEM;
-		goto err_ioremap;
-	}
-	mcu->regs_start[OM_REG_PERI1] = res->start;
-	mcu->regs_end[OM_REG_PERI1] = res->end;
-
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 2);
-	if (!res) {
-		dev_err(mcu->dev, "[@] can't get memory resource\n");
-		return -ENODEV;
-	}
-
-	mcu->regs[OM_REG_PERI2] = devm_ioremap(mcu->dev, res->start, resource_size(res));
-	if (!mcu->regs[OM_REG_PERI2]) {
-		dev_err(mcu->dev, "[@] ioremap failed\n");
-		ret = -ENOMEM;
-		goto err_ioremap;
-	}
-	mcu->regs_start[OM_REG_PERI2] = res->start;
-	mcu->regs_end[OM_REG_PERI2] = res->end;
-
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 3);
-	if (!res) {
-		dev_err(mcu->dev, "[@] can't get memory resource\n");
-		return -ENODEV;
-	}
-
-	mcu->regs[OM_REG_PERI_SETTING] = devm_ioremap(mcu->dev, res->start, resource_size(res));
-	if (!mcu->regs[OM_REG_PERI_SETTING]) {
-		dev_err(&pdev->dev, "[@] ioremap failed\n");
-		ret = -ENOMEM;
-		goto err_ioremap;
-	}
-	mcu->regs_start[OM_REG_PERI_SETTING] = res->start;
-	mcu->regs_end[OM_REG_PERI_SETTING] = res->end;
-
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 4);
-	if (!res) {
-		dev_err(mcu->dev, "[@] can't get memory resource\n");
-		return -ENODEV;
-	}
-
-	mcu->regs[OM_REG_SFR] = devm_ioremap(mcu->dev, res->start, resource_size(res));
-	if (!mcu->regs[OM_REG_SFR]) {
-		dev_err(mcu->dev, "[@] ioremap failed\n");
-		ret = -ENOMEM;
-		goto err_ioremap;
-	}
-	mcu->regs_start[OM_REG_SFR] = res->start;
-	mcu->regs_end[OM_REG_SFR] = res->end;
 
 	mcu->irq = platform_get_irq(pdev, 0);
 	if (mcu->irq < 0) {
@@ -2330,8 +1533,6 @@ static int is_vendor_ois_probe(struct platform_device *pdev)
 	vendor_priv = core->vendor.private_data;
 	vendor_priv->ois_ver_read = false;
 
-	is_vendor_ois_get_ops(&ois_ops_mcu);
-
 	for (i = 0; i < sensor_id_len; i++) {
 		probe_info("%s sensor_id %d\n", __func__, sensor_id[i]);
 
@@ -2353,7 +1554,8 @@ static int is_vendor_ois_probe(struct platform_device *pdev)
 		ois[i].pre_ois_mode = OPTICAL_STABILIZATION_MODE_OFF;
 		ois[i].ois_shift_available = false;
 		ois[i].ixc_lock = NULL;
-		ois[i].ois_ops = ois_ops_mcu;
+		ois[i].ois_ops = &ois_ops_mcu;
+		set_ois_comm_ops(&internal_mcu_ops);
 
 #if defined(USE_TELE_OIS_AF_COMMON_INTERFACE) || defined(USE_TELE2_OIS_AF_COMMON_INTERFACE)
 		if (mcu_actuator_list[i] == 1) {
@@ -2403,34 +1605,31 @@ static int is_vendor_ois_probe(struct platform_device *pdev)
 
 err_req_irq:
 err_get_irq:
-	devm_iounmap(mcu->dev, mcu->regs[OM_REG_CORE]);
-	devm_iounmap(mcu->dev, mcu->regs[OM_REG_PERI1]);
-	devm_iounmap(mcu->dev, mcu->regs[OM_REG_PERI2]);
-	devm_iounmap(mcu->dev, mcu->regs[OM_REG_PERI_SETTING]);
-	devm_iounmap(mcu->dev, mcu->regs[OM_REG_SFR]);
+	for (int i = 0; i < OM_REG_MAX; i++)
+		devm_iounmap(mcu->dev, mcu->regs[i]);
 err_ioremap:
 	devm_release_mem_region(mcu->dev, res->start, resource_size(res));
 p_err:
 	if (mcu)
-		kfree(mcu);
+		pablo_free(mcu);
 
 	if (is_mcu)
-		kfree(is_mcu);
+		pablo_free(is_mcu);
 
 	if (subdev_mcu)
-		kfree(subdev_mcu);
+		pablo_free(subdev_mcu);
 
 	if (ois)
-		kfree(ois);
+		pablo_free(ois);
 
 	if (subdev_ois)
-		kfree(subdev_ois);
+		pablo_free(subdev_ois);
 
 	if (actuator)
-		kfree(actuator);
+		pablo_free(actuator);
 
 	if (subdev_actuator)
-		kfree(subdev_actuator);
+		pablo_free(subdev_actuator);
 
 	return ret;
 }

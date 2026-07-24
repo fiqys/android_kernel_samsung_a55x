@@ -604,6 +604,7 @@ CONFIG_CPU_IDLE_MULTIPLE_DRIVERS=y
 # CONFIG_CPU_IDLE_GOV_LADDER is not set
 CONFIG_CPU_IDLE_GOV_MENU=y
 CONFIG_CPU_IDLE_GOV_TEO=y
+# CONFIG_CPU_IDLE_GOV_HALO is not set
 CONFIG_DT_IDLE_STATES=y
 CONFIG_DT_IDLE_GENPD=y
 
@@ -1600,6 +1601,7 @@ CONFIG_BT_HCIUART_QCA=y
 # CONFIG_BT_MTKSDIO is not set
 # CONFIG_BT_MTKUART is not set
 # CONFIG_BT_VIRTIO is not set
+# CONFIG_MSM_BT_POWER is not set
 # end of Bluetooth device drivers
 
 # CONFIG_AF_RXRPC is not set
@@ -1736,6 +1738,7 @@ CONFIG_PCIE_DW_PLAT=y
 # CONFIG_PCIE_DW_PLAT_HOST is not set
 CONFIG_PCIE_DW_PLAT_EP=y
 # CONFIG_PCI_EXYNOS is not set
+# CONFIG_PCI_EXYNOS_PHYCAL is not set
 # CONFIG_PCI_HISI is not set
 CONFIG_PCIE_QCOM=y
 # CONFIG_PCIE_QCOM_EP is not set
@@ -1841,6 +1844,16 @@ CONFIG_QCOM_EBI2=y
 # CONFIG_VEXPRESS_CONFIG is not set
 # CONFIG_MHI_BUS is not set
 # CONFIG_MHI_BUS_EP is not set
+
+#
+# MHI device support
+#
+# end of MHI device support
+
+#
+# MHI controllers
+#
+# end of MHI controllers
 # end of Bus devices
 
 # CONFIG_CONNECTOR is not set
@@ -6316,6 +6329,7 @@ CONFIG_DMABUF_HEAPS_SAMSUNG_HPA=y
 CONFIG_DMABUF_HEAPS_SAMSUNG_SYSTEM=y
 CONFIG_DMABUF_CONTAINER=m
 CONFIG_RBIN=y
+# CONFIG_DMABUF_HEAPS_CAMERAPOOL is not set
 # end of DMABUF options
 
 # CONFIG_AUXDISPLAY is not set
@@ -6649,6 +6663,7 @@ CONFIG_QCOM_GENI_SE=y
 # CONFIG_QCOM_GSBI is not set
 # CONFIG_QCOM_LLCC is not set
 # CONFIG_QCOM_OCMEM is not set
+# CONFIG_QCOM_QMI_HELPERS is not set
 # CONFIG_QCOM_RMTFS_MEM is not set
 # CONFIG_QCOM_RPMH is not set
 # CONFIG_QCOM_SMEM is not set
@@ -6658,6 +6673,16 @@ CONFIG_QCOM_SMEM_STATE=y
 # CONFIG_QCOM_WCNSS_CTRL is not set
 # CONFIG_QCOM_APR is not set
 # CONFIG_QCOM_ICC_BWMON is not set
+
+#
+# MHI device support
+#
+# end of MHI device support
+
+#
+# MHI controllers
+#
+# end of MHI controllers
 # end of Qualcomm SoC drivers
 
 CONFIG_SOC_SAMSUNG=y

@@ -16,6 +16,7 @@
 #include "is-device-sensor-peri.h"
 #include "is-sysfs.h"
 #include "is-cis.h"
+#include "is-device-ois_common.h"
 
 int is_vendor_device_info_get_factory_supported_id(void __user *user_data)
 {
@@ -669,7 +670,7 @@ int is_vendor_device_info_get_bpc_otp_data(void __user *user_data)
 
 	sensor_position = bpc_otp_ctrl.param1;
 
-	bpc_data = vzalloc(DEVICE_INFO_BPC_OTP_SIZE_MAX * sizeof(char));
+	bpc_data = pablo_zalloc(DEVICE_INFO_BPC_OTP_SIZE_MAX * sizeof(char), GFP_KERNEL);
 
 	ret = is_vendor_device_info_read_bpc_otp(sensor_position, bpc_data, &bpc_size);
 	if (ret < 0)
@@ -687,7 +688,7 @@ int is_vendor_device_info_get_bpc_otp_data(void __user *user_data)
 		ret = -EINVAL;
 	}
 
-	vfree(bpc_data);
+	pablo_free(bpc_data);
 
 	return ret;
 }
@@ -730,7 +731,7 @@ int is_vendor_device_info_get_mipi_phy(void __user *user_data)
 
 	phy_num = csi->phy_sf_tbl->sz_comm + csi->phy_sf_tbl->sz_lane;
 
-	phy_setfile_string = vzalloc(DEVICE_INFO_MIPI_PHY_MAX_SIZE * sizeof(char));
+	phy_setfile_string = pablo_zalloc(DEVICE_INFO_MIPI_PHY_MAX_SIZE * sizeof(char), GFP_KERNEL);
 
 	strcpy(phy_setfile_string, cis->sensor_info->name);
 
@@ -787,7 +788,7 @@ int is_vendor_device_info_get_mipi_phy(void __user *user_data)
 		ret  = -EINVAL;
 	}
 
-	vfree(phy_setfile_string);
+	pablo_free(phy_setfile_string);
 #endif
 
 	return ret;
@@ -830,7 +831,7 @@ int is_vendor_device_info_set_mipi_phy(void __user *user_data)
 	csi = v4l2_get_subdevdata(sensor->subdev_csi);
 	cis = (struct is_cis *)v4l2_get_subdevdata(sensor_peri->subdev_cis);
 
-	phy_setfile_string = vzalloc(DEVICE_INFO_MIPI_PHY_MAX_SIZE * sizeof(char));
+	phy_setfile_string = pablo_zalloc(DEVICE_INFO_MIPI_PHY_MAX_SIZE * sizeof(char), GFP_KERNEL);
 
 	if (copy_from_user((void *)phy_setfile_string, mipi_phy_ctrl.uint8_ptr,
 			sizeof(uint8_t) * mipi_phy_ctrl.ptr_size)) {
@@ -896,7 +897,7 @@ int is_vendor_device_info_set_mipi_phy(void __user *user_data)
 			phy->index, phy->max_lane, token_sub);
 	}
 
-	vfree(phy_setfile_string);
+	pablo_free(phy_setfile_string);
 #endif
 
 	return ret;

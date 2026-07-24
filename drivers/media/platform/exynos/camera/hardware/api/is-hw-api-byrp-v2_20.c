@@ -594,13 +594,13 @@ int byrp_hw_s_rdma_init(struct is_common_dma *dma,
 	case BYRP_RDMA_IMG:
 		dma_width = dma_crop_cfg->w;
 		dma_height = dma_crop_cfg->h;
-		stride_align = 32;
+		stride_align = config->byrp_bypass ? 1 : 32;
 		cache_hint = 0x7; /* 111: last-access-read */
 		break;
 	case BYRP_RDMA_HDR:
 		dma_width = dma_input->width;
 		dma_height = dma_input->height;
-		stride_align = 32;
+		stride_align = config->byrp_bypass ? 1 : 32;
 		cache_hint = 0x3; /* 011: cache-noalloc-type */
 		break;
 	default:

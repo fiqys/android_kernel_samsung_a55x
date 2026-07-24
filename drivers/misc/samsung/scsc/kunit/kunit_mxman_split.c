@@ -26,13 +26,25 @@ int wait_for_result = 1;
 #define srvman_notify_services(args...) ((u8)0)
 #define srvman_set_error(args...) ((void *)0)
 #define srvman_freeze_services(args...) ((void *)0)
-#define srvman_clear_error(args...) ((void *)0)
 #define complete(arg)	((void *)0)
 #define scsc_lerna_init()	((void *)0)
 #define whdr_crc_wq_start(arg)  ((void*)0)
 #define whdr_crc_wq_stop(arg)  ((void*)0)
 #define sysfs_create_file(args...) (1)
 #define sysfs_remove_file(args...) ((void)0)
+#define mxman_res_deinit_common(args...) ((void)0)
+#define scsc_mx_service_claim(args...) (0)
+#define register_mxman_force_panic(args...) (0)
+#define mifintrbit_dump(args...) ((void)0)
+#define scsc_mx_get_intrbit(args...) (0)
+#define scsc_mx_get_intrbit_wpan(args...) (0)
+#define pcie_users_print(args...) (0)
+
+static uint ramdump_on_fw_panic_enable;
+void set_ramdump_on_fw_panic_enable(int enable)
+{
+	ramdump_on_fw_panic_enable = enable;
+}
 
 static int fw_runtime_flags_setter(const char *val, const struct kernel_param *kp);
 static int fw_runtime_flags_setter_wpan(const char *val, const struct kernel_param *kp);
@@ -56,6 +68,21 @@ ssize_t (*fp_sysfs_show_memdump)(struct kobject *kobj, struct kobj_attribute *at
 static ssize_t sysfs_store_memdump(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count);
 ssize_t (*fp_sysfs_store_memdump)(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) = &sysfs_store_memdump;
 
+void kunit_mxman_register_max_retry_bt_service_close(void (*set_cb)(int value), int (*get_cb)(void))
+{
+	mxman_register_max_retry_bt_service_close(set_cb, get_cb);
+}
+
+void kunit_mxman_set_max_retry_service_close(int value)
+{
+	mxman_set_max_retry_service_close(value);
+}
+
+int kunit_mxman_get_max_retry_service_close(void)
+{
+	return mxman_get_max_retry_service_close();
+}
+
 static char *chip_version(u32 rf_hw_ver);
 char *kunit_chip_version(u32 rf_hw_ver)
 {
@@ -68,10 +95,12 @@ void kunit_mxman_reset_chip(struct mxman *mxman)
 	mxman_reset_chip(mxman);
 }
 
-static int mxman_start_boot(struct mxman *mxman, enum scsc_subsystem sub);
-int kunit_mxman_start_boot(struct mxman *mxman, enum scsc_subsystem sub)
+static int mxman_start_boot(struct mxman *mxman, enum scsc_subsystem sub,
+			    enum scsc_service_id service_id);
+int kunit_mxman_start_boot(struct mxman *mxman, enum scsc_subsystem sub,
+			   enum scsc_service_id service_id)
 {
-	return mxman_start_boot(mxman, sub);
+	return mxman_start_boot(mxman, sub, service_id);
 }
 
 static void print_panic_code_legacy(u16 code);
@@ -104,16 +133,26 @@ void kunit_mxman_failure_work(struct work_struct *work)
 	mxman_failure_work(work);
 }
 
-static int mxman_logring_register_observer(struct scsc_logring_mx_cb *mx_cb, char *name);
-int kunit_mxman_logring_register_observer(struct scsc_logring_mx_cb *mx_cb, char *name)
+/*
+static void mxman_create_scandump(struct mxman *mxman, uint32_t enable_scan2mem_dump);
+void kunit_mxman_create_scandump(struct mxman *mxman, uint32_t enable_scan2mem_dump)
 {
-	return mxman_logring_register_observer(mx_cb, name);
+#if IS_ENABLED(SCSC_PCIE_CHIP)
+	mxman_create_scandump(mxman, enable_scan2mem_dump);
+#endif
+}
+*/
+
+static int mxman_logring_register_observer(struct scsc_logring_mx_cb *mx_cb, char *name, int subsystem);
+int kunit_mxman_logring_register_observer(struct scsc_logring_mx_cb *mx_cb, char *name, int subsystem)
+{
+	return mxman_logring_register_observer(mx_cb, name, subsystem);
 }
 
-static int mxman_logring_unregister_observer(struct scsc_logring_mx_cb *mx_cb, char *name);
-int kunit_mxman_logring_unregister_observer(struct scsc_logring_mx_cb *mx_cb, char *name)
+static int mxman_logring_unregister_observer(struct scsc_logring_mx_cb *mx_cb, char *name, int subsystem);
+int kunit_mxman_logring_unregister_observer(struct scsc_logring_mx_cb *mx_cb, char *name, int subsystem)
 {
-	return mxman_logring_unregister_observer(mx_cb, name);
+	return mxman_logring_unregister_observer(mx_cb, name, subsystem);
 }
 
 static int mxman_minimoredump_collect(struct scsc_log_collector_client *collect_client, size_t size);

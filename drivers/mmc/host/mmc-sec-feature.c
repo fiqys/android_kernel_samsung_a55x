@@ -235,7 +235,8 @@ void sd_sec_check_req_err(struct dw_mci *host, struct mmc_request *mrq)
 		return;
 
 	/* Return if the cmd is tuning block */
-	if (mmc_op_tuning(mrq->cmd->opcode))
+	if ((mrq->cmd->opcode == MMC_SEND_TUNING_BLOCK) ||
+			(mrq->cmd->opcode == MMC_SEND_TUNING_BLOCK_HS200))
 		return;
 
 	/* set CMD(except CMD13) timestamp to check card stuck */

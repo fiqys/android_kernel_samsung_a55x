@@ -10,8 +10,9 @@ config SHUB_AP_STATUS_CMD
 	tristate "sensor hub at status command"
 	default n
 	help
-	 if you say yes, send command to sensorhub when ap suspend or resume
+		if you say yes, send command to sensorhub when ap suspend or resume
 
 config SHUB_SPU
 	tristate "Sensor hub spu firmware download"
 	default n
+
