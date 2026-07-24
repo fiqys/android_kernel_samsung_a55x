@@ -51,7 +51,7 @@
 		drm_regs = <1>;
 
 		/* Debug mode (disable needs sysmmu,async-fault) */
-		debug_mode = <1>;
+		debug_mode = <0>;
 
 		/* Max num secure DRM instance (secure drm buffer count ~256: 2, 320: 3) */
 		max_num_drm_inst = <3>;
