@@ -1811,10 +1811,10 @@ static struct attribute *f2fs_feat_attrs[] = {
 	ATTR_LIST(sec_heimdallfs),
 #endif
 	ATTR_LIST(pin_file),
-	ATTR_LIST(sec_reliable_pinning),
 #ifdef CONFIG_UNICODE
 	ATTR_LIST(linear_lookup),
 #endif
+	ATTR_LIST(sec_reliable_pinning),
 	NULL,
 };
 ATTRIBUTE_GROUPS(f2fs_feat);

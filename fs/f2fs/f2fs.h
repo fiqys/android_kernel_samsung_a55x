@@ -848,7 +848,7 @@ enum {
 	FI_ATOMIC_REPLACE,	/* indicate atomic replace */
 	FI_OPENED_FILE,         /* indicate file has been opened */
 	FI_FUA_WRITE,		/* indicate files for FUA */
-	FI_SEC_MIGRATE,     	/* indicate file being migrated */
+	FI_SEC_MIGRATE,     /* indicate file being migrated */
 	FI_MAX,			/* max flag, never be used */
 };
 
@@ -2711,8 +2711,14 @@ static inline void dec_valid_block_count(struct f2fs_sb_info *sbi,
 	block_t total_reserved_blocks;
 
 	spin_lock(&sbi->stat_lock);
-	f2fs_bug_on(sbi, sbi->total_valid_block_count < (block_t) count);
-	sbi->total_valid_block_count -= (block_t)count;
+	if (unlikely(sbi->total_valid_block_count < count)) {
+		f2fs_warn(sbi, "Inconsistent total_valid_block_count:%u, ino:%lu, count:%u",
+			  sbi->total_valid_block_count, inode->i_ino, count);
+		sbi->total_valid_block_count = 0;
+		set_sbi_flag(sbi, SBI_NEED_FSCK);
+	} else {
+		sbi->total_valid_block_count -= count;
+	}
 	total_reserved_blocks = sbi->reserved_blocks + sbi->sec_reserved_blocks;
 	if (total_reserved_blocks &&
 		sbi->current_reserved_blocks < total_reserved_blocks)
