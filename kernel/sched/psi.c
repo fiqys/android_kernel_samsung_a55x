@@ -561,8 +561,6 @@ static u64 update_triggers(struct psi_group *group, u64 now)
 			printk_deferred("psi: %s %llu %llu %d %llu %llu\n", __func__, now,
 			       t->last_event_time, t->state, t->threshold, growth);
 
-		trace_android_vh_psi_event(t);
-
 		/* Generate an event */
 		if (cmpxchg(&t->event, 0, 1) == 0)
 			wake_up_interruptible(&t->event_wait);
