@@ -255,12 +255,10 @@ struct mxlogger {
 	struct mxlogger_channel		chan[MXLOGGER_CHANNELS];
 	struct mutex			lock;
 	struct mutex			chan_lock;
-	u8				bt_observers;
-	u8				wlan_observers;
+	u8				observers;
 #if IS_ENABLED(CONFIG_BT_FWSNOOP_LOGGING)
 	/* Number of observers with different classes in each bit region. */
-	uint8_t			bt_registered_class;
-	uint8_t			wlan_registered_class;
+	uint8_t			registered_class;
 #endif
 };
 #else
@@ -298,15 +296,15 @@ void mxlogger_deinit_channel(struct mxlogger *mxlogger, enum scsc_mif_abs_target
 #else
 int mxlogger_start(struct mxlogger *mxlogger);
 #endif
-int mxlogger_register_observer(struct mxlogger *mxlogger, char *name, int subsystem);
-int mxlogger_unregister_observer(struct mxlogger *mxlogger, char *name, int subsystem);
-int mxlogger_register_global_observer(char *name, int subsystem);
-int mxlogger_unregister_global_observer(char *name, int subsystem);
+int mxlogger_register_observer(struct mxlogger *mxlogger, char *name);
+int mxlogger_unregister_observer(struct mxlogger *mxlogger, char *name);
+int mxlogger_register_global_observer(char *name);
+int mxlogger_unregister_global_observer(char *name);
 #if IS_ENABLED(CONFIG_BT_FWSNOOP_LOGGING)
-int mxlogger_register_observer_class(struct mxlogger *mxlogger, char *name, uint8_t class, int subsystem);
-int mxlogger_unregister_observer_class(struct mxlogger *mxlogger, char *name, uint8_t class, int subsystem);
-int mxlogger_register_global_observer_class(char *name, uint8_t class, int subsystem);
-int mxlogger_unregister_global_observer_class(char *name, uint8_t class, int subsystem);
+int mxlogger_register_observer_class(struct mxlogger *mxlogger, char *name, uint8_t class);
+int mxlogger_unregister_observer_class(struct mxlogger *mxlogger, char *name, uint8_t class);
+int mxlogger_register_global_observer_class(char *name, uint8_t class);
+int mxlogger_unregister_global_observer_class(char *name, uint8_t class);
 #endif
 bool mxlogger_set_enabled_status(bool enable);
 #if defined(SCSC_SEP_VERSION) && SCSC_SEP_VERSION >= 12

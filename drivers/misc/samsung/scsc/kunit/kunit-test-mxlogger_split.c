@@ -15,7 +15,6 @@ extern int (*fp_mxlogger_collect_wpan)(struct scsc_log_collector_client *collect
 extern int (*fp_mxlogger_collect_end)(struct scsc_log_collector_client *collect_client);
 extern int (*fp_mxlogger_collect_end_wpan)(struct scsc_log_collector_client *collect_client);
 extern void (*fp_mxlogger_enable_channel)(struct mxlogger *mxlogger, bool enable, u8 channel);
-extern int (*fp_mxlogger_buffer_to_index)(enum scsc_log_chunk_type fw_buffer);
 
 struct mxlogger *k_mxlogger;
 struct mxlogger_channel *k_mxlogger_channel;
@@ -67,7 +66,7 @@ static void mxlogger_testall(struct kunit *test)
 	fp_mxlogger_force_to_host_set_param_cb(val, NULL);
 	fp_mxlogger_force_to_host_get_param_cb(val, NULL);
 
-	mxlogger_unregister_global_observer("FAKE_OBSERVER", 1);
+	mxlogger_unregister_global_observer("FAKE_OBSERVER");
 
 	collect_client.prv = k_mxlogger;
 	fp_mxlogger_collect_init(&collect_client);
@@ -150,81 +149,6 @@ static void mxlogger_mxlogger_generate_sync_record(struct kunit *test)
 	KUNIT_EXPECT_STREQ(test, "OK", "OK");
 }
 
-static void mxlogger_mxlogger_register_global_observer_class(struct kunit *test)
-{
-	int res;
-#if IS_ENABLED(CONFIG_BT_FWSNOOP_LOGGING)
-	res = mxlogger_register_global_observer_class("FW_LOG", 0x01, 1);
-
-	res = mxlogger_unregister_global_observer_class("FW_LOG", 0x01, 1);
-#endif
-	KUNIT_EXPECT_STREQ(test, "OK", "OK");
-}
-
-static void mxlogger_mxlogger_buffer_to_index(struct kunit *test)
-{
-	fp_mxlogger_buffer_to_index(SCSC_LOG_CHUNK_SYNC);
-	fp_mxlogger_buffer_to_index(SCSC_LOG_CHUNK_IMP);
-#if defined(CONFIG_CHIPLOGGER_V_2_0)
-	fp_mxlogger_buffer_to_index(SCSC_LOG_CHUNK_IMPD12);
-	fp_mxlogger_buffer_to_index(SCSC_LOG_CHUNK_LINK);
-#endif
-	fp_mxlogger_buffer_to_index(SCSC_LOG_RESERVED_COMMON);
-	fp_mxlogger_buffer_to_index(SCSC_LOG_RESERVED_BT);
-	fp_mxlogger_buffer_to_index(SCSC_LOG_RESERVED_WLAN);
-	fp_mxlogger_buffer_to_index(SCSC_LOG_RESERVED_RADIO);
-	fp_mxlogger_buffer_to_index(SCSC_LOG_CHUNK_MXL);
-	fp_mxlogger_buffer_to_index(SCSC_LOG_CHUNK_UDI);
-	fp_mxlogger_buffer_to_index(SCSC_LOG_CHUNK_INVALID);
-
-	KUNIT_EXPECT_STREQ(test, "OK", "OK");
-}
-
-static void mxlogger_mxlogger_get_fw_buf_size(struct kunit *test)
-{
-	size_t res;
-	struct mxlogger mxlogger;
-	struct mxlogger_config_area	cfg;
-
-	mutex_init(&mxlogger.lock);
-	res = mxlogger_get_fw_buf_size(&mxlogger, SCSC_LOG_CHUNK_SYNC, SCSC_MIF_ABS_TARGET_WLAN);
-
-	mxlogger.initialized = true;
-	mxlogger.chan[MXLOGGER_CHANNEL_WLAN].cfg = &cfg;
-	res = mxlogger_get_fw_buf_size(&mxlogger, SCSC_LOG_CHUNK_SYNC, SCSC_MIF_ABS_TARGET_WLAN);
-	res = mxlogger_get_fw_buf_size(&mxlogger, SCSC_LOG_CHUNK_INVALID, SCSC_MIF_ABS_TARGET_WLAN);
-
-	KUNIT_EXPECT_STREQ(test, "OK", "OK");
-}
-
-static void mxlogger_mxlogger_dump_fw_buf(struct kunit *test)
-{
-	size_t res;
-	struct scsc_mx *mx;
-	struct mxlogger mxlogger;
-	struct mxlogger_config_area	cfg;
-
-	int size = 10;
-	int chunk_sync_size_in_fw = 100;
-
-	mx = test_alloc_scscmx(test, get_mif());
-	mxlogger.mx = mx;
-
-	mutex_init(&mxlogger.lock);
-	u32 *buf = kunit_kzalloc(test, size * sizeof(u32), GFP_KERNEL);
-
-	res = mxlogger_dump_fw_buf(&mxlogger, SCSC_LOG_CHUNK_SYNC, buf, size, SCSC_MIF_ABS_TARGET_WLAN);
-
-	mxlogger.initialized = true;
-	mxlogger.chan[MXLOGGER_CHANNEL_WLAN].cfg = &cfg;
-	cfg.bfds[SCSC_LOG_CHUNK_SYNC].location = -1;
-	cfg.bfds[SCSC_LOG_CHUNK_SYNC].size = chunk_sync_size_in_fw;
-	set_visible_sharedmem(test, true, chunk_sync_size_in_fw);
-	res = mxlogger_dump_fw_buf(&mxlogger, SCSC_LOG_CHUNK_SYNC, buf, size, SCSC_MIF_ABS_TARGET_WLAN);
-
-	KUNIT_EXPECT_STREQ(test, "OK", "OK");
-}
-
 static int test_init(struct kunit *test)
 {
 	return 0;
@@ -238,10 +162,6 @@ static struct kunit_case test_cases[] = {
 	KUNIT_CASE(mxlogger_testall),
 	KUNIT_CASE(mxlogger_mxlogger_enable_channel),
 	KUNIT_CASE(mxlogger_mxlogger_generate_sync_record),
-	KUNIT_CASE(mxlogger_mxlogger_register_global_observer_class),
-	KUNIT_CASE(mxlogger_mxlogger_buffer_to_index),
-	// KUNIT_CASE(mxlogger_mxlogger_get_fw_buf_size),
-	KUNIT_CASE(mxlogger_mxlogger_dump_fw_buf),
 	{}
 };
 

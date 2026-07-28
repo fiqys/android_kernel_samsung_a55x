@@ -4729,11 +4729,6 @@ static void slsi_rx_event_log_print(struct slsi_dev *sdev, struct net_device *de
 			  MAC2STR(evt_info->mac_addr), evt_info->vd.btm_cand_preference);
 		slsi_conn_log2us_btm_cand(sdev, dev, evt_info->mac_addr, evt_info->vd.btm_cand_preference);
 		break;
-	case FAPI_EVENT_WIFI_EVENT_VENDOR_SCAN_ABORT:
-		SLSI_INFO(sdev, "VENDOR_EVENT_501, Param1: %d, Param2: %d, FW Time: %llu",
-			  evt_info->reason_code, evt_info->vd.scan_type, timestamp);
-		slsi_conn_log2us_vendor_scan_abort(sdev, dev, evt_info->reason_code, evt_info->vd.scan_type, timestamp);
-		break;
 	}
 }
 
@@ -5937,6 +5932,10 @@ static int slsi_configure_latency_mode(struct wiphy *wiphy, struct wireless_dev 
 	sdev->device_config.latency_mode = low_latency_mode;
 	low_latency_mode = max(sdev->device_config.crt_latency_mode, low_latency_mode);
 	SLSI_MUTEX_UNLOCK(sdev->device_config_mutex);
+	if (low_latency_mode == 0)
+		sdev->soft_roaming_scans_allowed = true;
+	else
+		sdev->soft_roaming_scans_allowed = false;
 
 	ret = slsi_set_latency_mode(dev, low_latency_mode, len);
 	if (ret)
@@ -5945,8 +5944,8 @@ exit:
 	return ret;
 }
 
-static u32 slsi_uc_add_channels(struct wiphy *wiphy, enum nl80211_band band, struct slsi_usable_channel *buf,
-				 u32 cnt, u32 iface_mode, u32 max_cnt)
+static u32 slsi_uc_add_ap_channels(struct wiphy *wiphy, enum nl80211_band band,
+				   struct slsi_usable_channel *buf, u32 cnt, u32 max_cnt)
 {
 	u32                             chan_flags;
 	int                             i;
@@ -5958,33 +5957,25 @@ static u32 slsi_uc_add_channels(struct wiphy *wiphy, enum nl80211_band band, str
 		SLSI_INFO_NODEV("Band %d not supported\n", band);
 		return 0;
 	}
-
-	if ((iface_mode == SLSI_UC_ITERFACE_STA) ||
-	    (iface_mode == SLSI_UC_ITERFACE_P2P_CLIENT) ||
-	    (iface_mode == SLSI_UC_ITERFACE_P2P_TDLS))
-		chan_flags = IEEE80211_CHAN_DISABLED;
-	if ((iface_mode == SLSI_UC_ITERFACE_P2P_NAN) ||
-	    (iface_mode == SLSI_UC_ITERFACE_P2P_GO))
-		chan_flags = (IEEE80211_CHAN_RADAR | IEEE80211_CHAN_DISABLED | IEEE80211_CHAN_NO_IR);
-	if (iface_mode == SLSI_UC_ITERFACE_SOFTAP)
-		chan_flags = (IEEE80211_CHAN_INDOOR_ONLY | IEEE80211_CHAN_RADAR |
-			      IEEE80211_CHAN_DISABLED | IEEE80211_CHAN_NO_IR);
+	chan_flags = (IEEE80211_CHAN_INDOOR_ONLY | IEEE80211_CHAN_RADAR |
+		      IEEE80211_CHAN_DISABLED | IEEE80211_CHAN_NO_IR);
 
 	for (i = 0; i < chan_data->n_channels; i++) {
 		if (cnt >= max_cnt) {
-			SLSI_INFO_NODEV("Channel count is over MAX_NUM %d STOP finding...\n", cnt);
+			SLSI_INFO_NODEV("ap channel count is over MAX_NUM %d STOP finding...\n", cnt);
 			break;
 		}
 		center_freq = chan_data->channels[i].center_freq;
 		if (chan_data->channels[i].flags & chan_flags) {
-			SLSI_DBG1_NODEV(SLSI_CFG80211, "invalid freq %d , chan_flags:0x%x\n", center_freq,
+			SLSI_DBG1_NODEV(SLSI_CFG80211, "ap invalid freq %d , chan_flags:%x\n", center_freq,
 					chan_data->channels[i].flags);
 			continue;
 		}
 
 		channel = ieee80211_get_channel(wiphy, center_freq);
 		if (!channel) {
-			SLSI_ERR_NODEV("Invalid frequency %d used. Channel not found\n", center_freq);
+			SLSI_ERR_NODEV("Invalid frequency %d used to start AP. Channel not found\n",
+				       center_freq);
 			continue;
 		}
 #ifdef CONFIG_SCSC_WLAN_SUPPORT_6G
@@ -5996,8 +5987,8 @@ static u32 slsi_uc_add_channels(struct wiphy *wiphy, enum nl80211_band band, str
 #endif
 		buf[cnt].freq = center_freq;
 		buf[cnt].width = SLSI_LLS_CHAN_WIDTH_20;
-		buf[cnt++].iface_mode_mask = iface_mode;
-		SLSI_DBG1_NODEV(SLSI_CFG80211, "valid [%d] freq %d , chan_flags:0x%x\n", cnt - 1,
+		buf[cnt++].iface_mode_mask = SLSI_UC_ITERFACE_SOFTAP;
+		SLSI_DBG1_NODEV(SLSI_CFG80211, "ap valid [%d] freq %d , chan_flags:%x\n", cnt - 1,
 				center_freq, chan_data->channels[i].flags);
 	}
 	return cnt;
@@ -6052,7 +6043,8 @@ static int slsi_get_usable_channels(struct wiphy *wiphy,
 		}
 	}
 
-	if (request.iface_mode == SLSI_UC_ITERFACE_UNKNOWN) {
+	if (request.iface_mode == SLSI_UC_ITERFACE_UNKNOWN ||
+	    !(request.iface_mode & SLSI_UC_ITERFACE_SOFTAP)) {
 		SLSI_ERR_NODEV("iface_mode: %d NOT supported\n", request.iface_mode);
 		ret = -EOPNOTSUPP;
 		goto exit;
@@ -6089,17 +6081,14 @@ static int slsi_get_usable_channels(struct wiphy *wiphy,
 		goto exit_with_chan_list;
 	}
 	if (request.band & SLSI_UC_MAC_2_4_BAND && chan_count < request.max_num)
-		chan_count = slsi_uc_add_channels(wiphy, NL80211_BAND_2GHZ, chan_list, chan_count,
-						  request.iface_mode, request.max_num);
+		chan_count = slsi_uc_add_ap_channels(wiphy, NL80211_BAND_2GHZ, chan_list, chan_count, request.max_num);
 
 	if (request.band & SLSI_UC_MAC_5_BAND && chan_count < request.max_num)
-		chan_count = slsi_uc_add_channels(wiphy, NL80211_BAND_5GHZ, chan_list, chan_count,
-						   request.iface_mode, request.max_num);
+		chan_count += slsi_uc_add_ap_channels(wiphy, NL80211_BAND_5GHZ, chan_list, chan_count, request.max_num);
 
 #ifdef CONFIG_SCSC_WLAN_SUPPORT_6G
 	if (request.band & SLSI_UC_MAC_6_BAND && chan_count < request.max_num)
-		chan_count = slsi_uc_add_channels(wiphy, NL80211_BAND_6GHZ, chan_list, chan_count,
-						   request.iface_mode, request.max_num);
+		chan_count += slsi_uc_add_ap_channels(wiphy, NL80211_BAND_6GHZ, chan_list, chan_count, request.max_num);
 #endif
 
 	ret |= nla_put_u32(reply, SLSI_UC_ATTRIBUTE_NUM_CHANNELS, chan_count);
@@ -7623,10 +7612,7 @@ static int slsi_tas_tx_sar_limit_req(struct sk_buff *skb, struct genl_info *info
 		sar_param.flags |= SLSI_TAS_SET_CTRL_BACKOFF;
 	sar_param.sar_limit = nla_get_u16(info->attrs[SLSI_TAS_ATTR_TX_SAR_LIMIT]);
 
-	SLSI_MUTEX_LOCK(sdev->start_stop_mutex);
-	if (sdev->device_state == SLSI_DEVICE_STATE_STARTED)
-		slsi_mlme_tas_tx_sar_limit(sdev, &sar_param);
-	SLSI_MUTEX_UNLOCK(sdev->start_stop_mutex);
+	slsi_mlme_tas_tx_sar_limit(sdev, &sar_param);
 
 release_lock:
 	if (slsi_wake_lock_active(&tas_info->wlan_wl_tas))
@@ -7650,11 +7636,7 @@ static int slsi_tas_short_win_num_req(struct sk_buff *skb, struct genl_info *inf
 	sar_param.flags = 0;
 	sar_param.sar_limit = nla_get_u16(info->attrs[SLSI_TAS_ATTR_TX_SAR_LIMIT]);
 
-	SLSI_MUTEX_LOCK(sdev->start_stop_mutex);
-	if (sdev->device_state == SLSI_DEVICE_STATE_STARTED)
-		slsi_mlme_tas_set_short_win_num(sdev, &sar_param);
-	SLSI_MUTEX_UNLOCK(sdev->start_stop_mutex);
-
+	slsi_mlme_tas_set_short_win_num(sdev, &sar_param);
 	return 0;
 }
 

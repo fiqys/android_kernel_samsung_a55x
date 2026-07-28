@@ -450,14 +450,14 @@ void mxman_destroy_sysfs_hdm_bt_loader(void)
 #endif
 
 #if IS_ENABLED(CONFIG_SCSC_MXLOGGER)
-static int mxman_logring_register_observer(struct scsc_logring_mx_cb *mx_cb, char *name, int subsystem)
+static int mxman_logring_register_observer(struct scsc_logring_mx_cb *mx_cb, char *name)
 {
-	return mxlogger_register_global_observer(name, subsystem);
+	return mxlogger_register_global_observer(name);
 }
 
-static int mxman_logring_unregister_observer(struct scsc_logring_mx_cb *mx_cb, char *name, int subsystem)
+static int mxman_logring_unregister_observer(struct scsc_logring_mx_cb *mx_cb, char *name)
 {
-	return mxlogger_unregister_global_observer(name, subsystem);
+	return mxlogger_unregister_global_observer(name);
 }
 
 /* callbacks to mxman */

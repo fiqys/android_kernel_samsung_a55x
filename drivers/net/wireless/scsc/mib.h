@@ -13865,9 +13865,6 @@ void slsi_mib_buf_append(struct slsi_mib_data *dst, size_t bufferLength, u8 *buf
 #define SLSI_PSID_UNIFI_GOOGLE_MAX_SIGNIFICANT_WIFI_CHANGE_APS 2263
 #define SLSI_PSID_UNIFI_GOOGLE_MAX_BSSID_HISTORY_ENTRIES 2264
 
-/* TODO: To be removed after mib update */
-#define SLSI_PSID_UNIFI_ROAM_DOWNGRADE_AKM_ALLOWED 0x2757
-
 #ifdef __cplusplus
 }
 #endif

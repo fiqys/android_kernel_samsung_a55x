@@ -2147,8 +2147,7 @@ static void test_slsi_configure_latency_mode(struct kunit *test)
 	KUNIT_EXPECT_EQ(test, -EINVAL, slsi_configure_latency_mode(wiphy, wdev, nla_attr, len));
 }
 
-#define MAX_USABLE_CHANNEL	1
-static void test_slsi_uc_add_channels(struct kunit *test)
+static void test_slsi_uc_add_ap_channels(struct kunit *test)
 {
 	struct slsi_dev *sdev = TEST_TO_SDEV(test);
 	struct wiphy *wiphy = sdev->wiphy;
@@ -2175,8 +2174,6 @@ static void test_slsi_uc_add_channels(struct kunit *test)
 	buf = kunit_kzalloc(test, mem_len, GFP_KERNEL);
 
 	KUNIT_EXPECT_EQ(test, max_cnt - cnt, slsi_uc_add_ap_channels(wiphy, NL80211_BAND_2GHZ, buf, cnt, max_cnt));
-	KUNIT_EXPECT_EQ(test, MAX_USABLE_CHANNEL,
-			slsi_uc_add_channels(wiphy, NL80211_BAND_2GHZ, buf, cnt, SLSI_UC_ITERFACE_STA, MAX_USABLE_CHANNEL));
 }
 
 static void test_slsi_get_usable_channels(struct kunit *test)
@@ -2307,7 +2304,7 @@ static struct kunit_case nl80211_vendor_test_cases[] = {
 	KUNIT_CASE(test_slsi_acs_init),
 	KUNIT_CASE(test_slsi_configure_latency_mode),
 	KUNIT_CASE(test_slsi_rx_event_log_indication),
-	KUNIT_CASE(test_slsi_uc_add_channels),
+	KUNIT_CASE(test_slsi_uc_add_ap_channels),
 	KUNIT_CASE(test_slsi_get_usable_channels),
 	KUNIT_CASE(test_slsi_set_dtim_config),
 #ifdef CONFIG_SCSC_WLAN_SAR_SUPPORTED
