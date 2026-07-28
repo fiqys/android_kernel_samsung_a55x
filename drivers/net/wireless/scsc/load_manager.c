@@ -1020,7 +1020,7 @@ static int cpu_status_change_for_rps(struct net_device *dev, u32 state, int cpu,
 		if (test_bit(cpu, &tmp) && !test_and_set_bit(cpu, &tmp_ndev)) {
 			char buf[RPS_MAP_LEN];
 
-			snprintf(buf, RPS_MAP_LEN, "%03lx\n", tmp_ndev);
+			snprintf(buf, RPS_MAP_LEN, "%03lx", tmp_ndev);
 			memcpy(ndev_vif->rps->rps[state], buf, RPS_MAP_LEN);
 			is_changed = true;
 		}
@@ -1031,7 +1031,7 @@ static int cpu_status_change_for_rps(struct net_device *dev, u32 state, int cpu,
 		if (test_and_clear_bit(cpu, &tmp_ndev)) {
 			char buf[RPS_MAP_LEN];
 
-			snprintf(buf, RPS_MAP_LEN, "%03lx\n", tmp_ndev);
+			snprintf(buf, RPS_MAP_LEN, "%03lx", tmp_ndev);
 			memcpy(ndev_vif->rps->rps[state], buf, RPS_MAP_LEN);
 			is_changed = true;
 		}

@@ -939,6 +939,7 @@ int slsi_start(struct slsi_dev *sdev, struct net_device *dev)
 		kfree(sdev->default_scan_ies);
 		sdev->default_scan_ies = NULL;
 		sdev->default_scan_ies_len = 0;
+		sdev->soft_roaming_scans_allowed = true;
 	}
 
 	if (sdev->recovery_status) {
@@ -4405,8 +4406,6 @@ int slsi_handle_disconnect(struct slsi_dev *sdev, struct net_device *dev, u8 *pe
 		if (slsi_mlme_del_vif(sdev, dev) != 0)
 			SLSI_NET_ERR(dev, "slsi_mlme_del_vif failed\n");
 		slsi_vif_deactivated(sdev, dev);
-		if (slsi_wake_lock_active(&ndev_vif->wlan_wl_sae))
-			slsi_wake_unlock(&ndev_vif->wlan_wl_sae);
 		break;
 	}
 	case FAPI_VIFTYPE_AP:
@@ -6594,7 +6593,7 @@ void slsi_roam_channel_cache_prune(struct net_device *dev, int seconds, char *ss
 		}
 	} else {
 		list_for_each_entry_safe(network_map, tmp, &ndev_vif->sta.network_map, list) {
-			for (i = 1; i < (SLSI_NUM_2P4GHZ_CHANNELS + SLSI_NUM_5GHZ_CHANNELS); i++) {
+			for (i = 1; i <= (SLSI_NUM_2P4GHZ_CHANNELS + SLSI_NUM_5GHZ_CHANNELS); i++) {
 				if (time_after_eq(now, network_map->channel_jiffies[i] + (seconds * HZ))) {
 					if (i <= SLSI_NUM_2P4GHZ_CHANNELS)
 						network_map->channels_24_ghz &= ~(1 << (i));
@@ -8205,7 +8204,7 @@ int slsi_set_latency_mode(struct net_device *dev, int latency_mode, int cmd_len)
 	SLSI_MUTEX_UNLOCK(sdev->device_config_mutex);
 
 	SLSI_MUTEX_LOCK(ndev_vif->vif_mutex);
-	ret = slsi_mlme_set_low_latency_mode_req(sdev, dev, latency_mode);
+	ret = slsi_mlme_set_low_latency_mode_req(sdev, dev, latency_mode, sdev->soft_roaming_scans_allowed);
 	SLSI_MUTEX_UNLOCK(ndev_vif->vif_mutex);
 
 	return ret;
@@ -8263,7 +8262,7 @@ int slsi_set_latency_crt_data(struct net_device *dev, int latency_mode)
 	SLSI_MUTEX_UNLOCK(sdev->device_config_mutex);
 
 	SLSI_MUTEX_LOCK(ndev_vif->vif_mutex);
-	ret = slsi_mlme_set_low_latency_mode_req(sdev, dev, latency_mode);
+	ret = slsi_mlme_set_low_latency_mode_req(sdev, dev, latency_mode, sdev->soft_roaming_scans_allowed);
 
 	SLSI_DBG1(sdev, SLSI_CFG80211, "set_scan_mode = %d\n", set_scan_mode);
 	if (set_scan_mode && ret == -EOPNOTSUPP) {

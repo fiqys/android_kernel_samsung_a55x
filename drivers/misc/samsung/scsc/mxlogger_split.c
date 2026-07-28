@@ -14,7 +14,6 @@
 #include <linux/atomic.h>
 #include <linux/version.h>
 #include <scsc/scsc_logring.h>
-#include <scsc/scsc_mx.h>
 #if IS_ENABLED(CONFIG_SCSC_LOG_COLLECTION)
 #include <scsc/scsc_log_collector.h>
 #endif
@@ -79,38 +78,6 @@ static int mxlogger_manual_udi;
 module_param(mxlogger_manual_udi, int, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(mxlogger_manual_udi, "size for UDI buffer when mxlogger_manual_layout is enabled");
 
-static bool bt_fw_realtime_log_disabled;
-static int bt_fw_realtime_log_set_param_cb(const char *val, const struct kernel_param *kp)
-{
-	bool nval;
-
-	if (!val || strtobool(val, &nval))
-		return -EINVAL;
-
-	if (bt_fw_realtime_log_disabled ^ nval) {
-		bt_fw_realtime_log_disabled = nval;
-		pr_info("wlbt: BT FW RealTime Log is now %sABLED.\n",
-			bt_fw_realtime_log_disabled ? "DIS" : "EN");
-	}
-	return 0;
-}
-
-/**
- * As described in struct kernel_param+ops the _get method:
- * -> returns length written or -errno.  Buffer is 4k (ie. be short!)
- */
-static int bt_fw_realtime_log_get_param_cb(char *buffer, const struct kernel_param *kp)
-{
-	return sprintf(buffer, "%c \n", bt_fw_realtime_log_disabled ? 'Y' : 'N');
-}
-
-static struct kernel_param_ops bt_fw_realtime_log_ops = {
-	.set = bt_fw_realtime_log_set_param_cb,
-	.get = bt_fw_realtime_log_get_param_cb,
-};
-module_param_cb(bt_fw_realtime_log_disabled, &bt_fw_realtime_log_ops, NULL, 0644);
-MODULE_PARM_DESC(bt_fw_realtime_log_disabled, "set the bt fw realtime log disable");
-
 static bool mxlogger_forced_to_host;
 
 static void update_fake_observer(void)
@@ -119,15 +86,13 @@ static void update_fake_observer(void)
 
 	if (mxlogger_forced_to_host) {
 		if (!mxlogger_fake_observers_registered) {
-			mxlogger_register_global_observer("FAKE_OBSERVER", SCSC_SUBSYSTEM_WLAN);
-			mxlogger_register_global_observer("FAKE_OBSERVER", SCSC_SUBSYSTEM_WPAN);
+			mxlogger_register_global_observer("FAKE_OBSERVER");
 			mxlogger_fake_observers_registered = true;
 		}
 		SCSC_TAG_INFO(MXMAN, "MXLOGGER is now FORCED TO HOST.\n");
 	} else {
 		if (mxlogger_fake_observers_registered) {
-			mxlogger_unregister_global_observer("FAKE_OBSERVER", SCSC_SUBSYSTEM_WLAN);
-			mxlogger_unregister_global_observer("FAKE_OBSERVER", SCSC_SUBSYSTEM_WPAN);
+			mxlogger_unregister_global_observer("FAKE_OBSERVER");
 			mxlogger_fake_observers_registered = false;
 		}
 		SCSC_TAG_INFO(MXMAN, "MXLOGGER is now operating NORMALLY.\n");
@@ -164,11 +129,9 @@ static struct kernel_param_ops mxlogger_force_to_host_ops = {
 module_param_cb(mxlogger_force_to_host, &mxlogger_force_to_host_ops, NULL, 0644);
 MODULE_PARM_DESC(mxlogger_force_to_host, "Force mxlogger to redirect to Host all the time, using a fake observer.");
 
-static u8 active_global_wlan_observers;
-static u8 active_global_bt_observers;
+static u8 active_global_observers;
 #if IS_ENABLED(CONFIG_BT_FWSNOOP_LOGGING)
-static uint8_t active_wlan_registered_class;
-static uint8_t active_bt_registered_class;
+static uint8_t active_registered_class;
 #endif
 static DEFINE_MUTEX(global_lock);
 
@@ -679,12 +642,7 @@ static void mxlogger_to_shared_dram(struct mxlogger *mxlogger, u8 channel)
 	struct mxmgmt_transport *mxmgmt_transport;
 	struct mxlogger_channel *chan = &mxlogger->chan[channel];
 
-	if (bt_fw_realtime_log_disabled && channel == MXLOGGER_CHANNEL_WPAN) {
-		SCSC_TAG_INFO(MXMAN, "BT fw realtime log disabled, send logs to DRAM\n");
-	} else {
-		SCSC_TAG_INFO(MXMAN, "MXLOGGER --Channel %s NO active observers detected. Send logs to DRAM\n", channel ? "WPAN" : "WLAN");
-	}
-
+	SCSC_TAG_INFO(MXMAN, "MXLOGGER -- NO active observers detected. Send logs to DRAM\n");
 	if (!chan->enabled) {
 		SCSC_TAG_INFO(MXMAN, "Channel %s disabled\n", channel ? "WPAN" : "WLAN");
 		return;
@@ -715,21 +673,19 @@ static void mxlogger_to_host_class(struct mxlogger *mxlogger, u8 channel, uint8_
 		return;
 	}
 
-	if (chan->target == SCSC_MIF_ABS_TARGET_WLAN) {
-		if (mxlogger->wlan_registered_class >> MXLOGGER_BITPOS_REALTIME)
-			class = MXLOGGER_CLASS_REALTIME;
-		else if (class == MXLOGGER_CLASS_REGISTERED)
-			class = MXLOGGER_CLASS_RELAXED;
+	if (mxlogger->registered_class >> MXLOGGER_BITPOS_REALTIME) {
+		class = MXLOGGER_CLASS_REALTIME;
+	} else if (class == MXLOGGER_CLASS_REGISTERED)
+		class = MXLOGGER_CLASS_RELAXED;
+
+	SCSC_TAG_INFO(MXMAN, "MXLOGGER -- active %s observers(class: 0x%02x) detected. Send logs to host\n",
+					class ? "RELAXED" : "REALTIME", mxlogger->registered_class);
+
+	if (chan->target == SCSC_MIF_ABS_TARGET_WLAN)
 		mxmgmt_transport = scsc_mx_get_mxmgmt_transport(mxlogger->mx);
-	} else {
-		if (mxlogger->bt_registered_class >> MXLOGGER_BITPOS_REALTIME)
-			class = MXLOGGER_CLASS_REALTIME;
-		else if (class == MXLOGGER_CLASS_REGISTERED)
-			class = MXLOGGER_CLASS_RELAXED;
+	else
 		mxmgmt_transport = scsc_mx_get_mxmgmt_transport_wpan(mxlogger->mx);
-	}
-	SCSC_TAG_INFO(MXMAN, "MXLOGGER -- Channel %s active %s observers(wlan class: 0x%02x, bt class: 0x%02x) detected. Send logs to host\n",
-					channel ? "WPAN" : "WLAN", class ? "RELAXED" : "REALTIME", mxlogger->wlan_registered_class, mxlogger->bt_registered_class);
+
 	r = __mxlogger_generate_sync_record(mxlogger, channel, MXLOGGER_SYN_TOHOST);
 	if (r)
 		return;
@@ -763,7 +719,7 @@ static void mxlogger_to_host(struct mxlogger *mxlogger, u8 channel)
 	}
 
 	if (mxmgmt_transport) {
-		SCSC_TAG_INFO(MXMAN, "MXLOGGER -- Channel %s active observers detected. Send logs to host\n", channel ? "WPAN" : "WLAN");
+		SCSC_TAG_INFO(MXMAN, "MXLOGGER -- active observers detected. Send logs to host\n");
 		r = __mxlogger_generate_sync_record(mxlogger, channel, MXLOGGER_SYN_TOHOST);
 		if (r)
 			return;
@@ -1522,25 +1478,20 @@ int mxlogger_init(struct scsc_mx *mx, struct mxlogger *mxlogger, uint32_t mem_sz
 
 	mutex_lock(&global_lock);
 
-	mxlogger->bt_observers = active_global_bt_observers;
-	mxlogger->wlan_observers = active_global_wlan_observers;
+	mxlogger->observers = active_global_observers;
 #if IS_ENABLED(CONFIG_BT_FWSNOOP_LOGGING)
-	mxlogger->bt_registered_class = active_bt_registered_class;
-	mxlogger->wlan_registered_class = active_wlan_registered_class;
+	mxlogger->registered_class = active_registered_class;
 #endif
-	if (mxlogger->bt_observers || mxlogger->wlan_observers)
+	if (mxlogger->observers)
 #if IS_ENABLED(CONFIG_BT_FWSNOOP_LOGGING)
-		SCSC_TAG_INFO(MXMAN, "Detected bt global observer[%d], wlan global observer[%d](wlan class: 0x%02x, bt class: 0x%02x)\n",
-		      active_global_bt_observers, active_global_wlan_observers, mxlogger->wlan_registered_class, mxlogger->bt_registered_class);
+		SCSC_TAG_INFO(MXMAN, "Detected global %d observer[s](class: 0x%02x)\n", active_global_observers, mxlogger->registered_class);
 #else
-		SCSC_TAG_INFO(MXMAN, "Detected bt global observer[%d], wlan global observer[%d]\n",
-		      active_global_bt_observers, active_global_wlan_observers);
+		SCSC_TAG_INFO(MXMAN, "Detected global %d observer[s]\n", active_global_observers);
 #endif
-
+	mutex_unlock(&global_lock);
 
 	mn->mxl = mxlogger;
 	list_add_tail(&mn->list, &mxlogger_list.list);
-	mutex_unlock(&global_lock);
 
 	mxlogger->configured = true;
 	SCSC_TAG_INFO(MXMAN, "MXLOGGER Configured\n");
@@ -1561,8 +1512,7 @@ int mxlogger_start_channel(struct mxlogger *mxlogger, enum scsc_mif_abs_target t
 		return -EIO;
 	}
 
-	SCSC_TAG_INFO(MXMAN, "Starting mxlogger with wlan_observer[%d], bt_observer[%d] \n",
-	      mxlogger->wlan_observers, mxlogger->bt_observers);
+	SCSC_TAG_INFO(MXMAN, "Starting mxlogger with %d observer[s]\n", mxlogger->observers);
 
 	mutex_lock(&mxlogger->lock);
 	if (target == SCSC_MIF_ABS_TARGET_WLAN)
@@ -1594,54 +1544,32 @@ int mxlogger_start_channel(struct mxlogger *mxlogger, enum scsc_mif_abs_target t
 	 *  - direction DRAM
 	 *  - all rings disabled (ingressing messages discarded)
 	 */
-
-	switch (channel) {
-	case MXLOGGER_CHANNEL_WLAN:
-		if (!mxlogger->wlan_observers) {
-			mxlogger_enable_channel(mxlogger, true, channel);
-			mxlogger_to_shared_dram(mxlogger, channel);
-		} else {
-#if IS_ENABLED(CONFIG_BT_FWSNOOP_LOGGING)
-			mxlogger_to_host_class(mxlogger, channel, MXLOGGER_CLASS_REGISTERED);
-#else
-			mxlogger_to_host(mxlogger, channel);
-#endif
-			/* Enabling AFTER communicating direction HOST
-			 * to avoid wrongly spilling messages into the
-			 * rings early at start (like at boot).
-			 */
-			mxlogger_enable_channel(mxlogger, true, channel);
-		}
-		break;
-	case MXLOGGER_CHANNEL_WPAN:
-		if (!mxlogger->bt_observers || bt_fw_realtime_log_disabled) {
-			mxlogger_enable_channel(mxlogger, true, channel);
-			mxlogger_to_shared_dram(mxlogger, channel);
-		} else {
-#if IS_ENABLED(CONFIG_BT_FWSNOOP_LOGGING)
-			mxlogger_to_host_class(mxlogger, channel, MXLOGGER_CLASS_REGISTERED);
-#else
-			mxlogger_to_host(mxlogger, channel);
-#endif
-			/* Enabling AFTER communicating direction HOST
-			 * to avoid wrongly spilling messages into the
-			 * rings early at start (like at boot).
-			 */
-			mxlogger_enable_channel(mxlogger, true, channel);
-		}
-		break;
-	default:
-		SCSC_TAG_ERR(MXMAN, "UNKNOWN CHANNEL\n");
-	}
-
+	if (!mxlogger->observers) {
+		/* Enabling BEFORE communicating direction DRAM
+		 * to avoid losing messages on rings.
+		 */
+		mxlogger_enable_channel(mxlogger, true, channel);
+		mxlogger_to_shared_dram(mxlogger, channel);
 #if IS_ENABLED(CONFIG_SCSC_LOG_COLLECTION)
-	if (!mxlogger->wlan_observers && (!mxlogger->bt_observers || bt_fw_realtime_log_disabled))
 		scsc_log_collector_is_observer(false);
-	else
+#endif
+	} else {
+#if IS_ENABLED(CONFIG_BT_FWSNOOP_LOGGING)
+		mxlogger_to_host_class(mxlogger, channel, MXLOGGER_CLASS_REGISTERED);
+#else
+		mxlogger_to_host(mxlogger, channel);
+#endif
+#if IS_ENABLED(CONFIG_SCSC_LOG_COLLECTION)
 		scsc_log_collector_is_observer(true);
 #endif
+		/* Enabling AFTER communicating direction HOST
+		 * to avoid wrongly spilling messages into the
+		 * rings early at start (like at boot).
+		 */
+		mxlogger_enable_channel(mxlogger, true, channel);
+	}
 
-	SCSC_TAG_INFO(MXMAN, "MXLOGGER Started. Channel is %s\n", channel ? "WPAN" : "WLAN");
+	SCSC_TAG_INFO(MXMAN, "MXLOGGER Started.\n");
 	mutex_unlock(&mxlogger->lock);
 
 	return 0;
@@ -1670,31 +1598,14 @@ int mxlogger_stop_channel(struct mxlogger *mxlogger, enum scsc_mif_abs_target ta
 		return -EIO;
 	}
 
-	switch (channel) {
-	case MXLOGGER_CHANNEL_WLAN:
-		if (!mxlogger->wlan_observers) {
-			mxlogger_to_shared_dram(mxlogger, channel);
-		} else {
+	if (!mxlogger->observers) {
+		mxlogger_to_shared_dram(mxlogger, channel);
+	} else {
 #if IS_ENABLED(CONFIG_BT_FWSNOOP_LOGGING)
-			mxlogger_to_host_class(mxlogger, channel, MXLOGGER_CLASS_REGISTERED);
+		mxlogger_to_host_class(mxlogger, channel, MXLOGGER_CLASS_REGISTERED);
 #else
-			mxlogger_to_host(mxlogger, channel);
+		mxlogger_to_host(mxlogger, channel);
 #endif
-		}
-		break;
-	case MXLOGGER_CHANNEL_WPAN:
-		if (!mxlogger->bt_observers || bt_fw_realtime_log_disabled) {
-			mxlogger_to_shared_dram(mxlogger, channel);
-		} else {
-#if IS_ENABLED(CONFIG_BT_FWSNOOP_LOGGING)
-			mxlogger_to_host_class(mxlogger, channel, MXLOGGER_CLASS_REGISTERED);
-#else
-			mxlogger_to_host(mxlogger, channel);
-#endif
-		}
-		break;
-	default:
-		SCSC_TAG_ERR(MXMAN, "UNKNOWN CHANNEL\n");
 	}
 
 	/* Disable channel */
@@ -1717,42 +1628,31 @@ void mxlogger_deinit(struct scsc_mx *mx, struct mxlogger *mxlogger)
 		return;
 	}
 
-	if (!mxlogger->wlan_observers && !mxlogger->bt_observers) {
+	if (!mxlogger->observers) {
 		for (i = 0; i < MXLOGGER_CHANNELS; i++)
 			mxlogger_to_shared_dram(mxlogger, i);
-	} else {
-		if (mxlogger->wlan_observers) {
-#if IS_ENABLED(CONFIG_BT_FWSNOOP_LOGGING)
-			mxlogger_to_host_class(mxlogger, MXLOGGER_CHANNEL_WLAN, MXLOGGER_CLASS_REGISTERED);
-#else
-			mxlogger_to_host(mxlogger, MXLOGGER_CHANNEL_WLAN);
-#endif
-		}
-
-		if (mxlogger->bt_observers) {
-			if (bt_fw_realtime_log_disabled) {
-				SCSC_TAG_INFO(MXMAN, "mxlogger deinit, BT fw realtime log disabled, send logs to DRAM\n");
-				mxlogger_to_shared_dram(mxlogger, MXLOGGER_CHANNEL_WPAN);
-			} else {
-#if IS_ENABLED(CONFIG_BT_FWSNOOP_LOGGING)
-				mxlogger_to_host_class(mxlogger, MXLOGGER_CHANNEL_WPAN, MXLOGGER_CLASS_REGISTERED);
-#else
-				mxlogger_to_host(mxlogger, MXLOGGER_CHANNEL_WPAN);
-#endif
-			}
-		}
-	}
-
 #if IS_ENABLED(CONFIG_SCSC_LOG_COLLECTION)
-	if (!mxlogger->wlan_observers && (!mxlogger->bt_observers || bt_fw_realtime_log_disabled))
 		scsc_log_collector_is_observer(false);
-	else
+#endif
+	} else {
+		for (i = 0; i < MXLOGGER_CHANNELS; i++) {
+#if IS_ENABLED(CONFIG_BT_FWSNOOP_LOGGING)
+			mxlogger_to_host_class(mxlogger, i, MXLOGGER_CLASS_REGISTERED);
+#else
+			mxlogger_to_host(mxlogger, i);	/* immediately before deconfigure to get a last sync rec */
+#endif
+		}
+#if IS_ENABLED(CONFIG_SCSC_LOG_COLLECTION)
 		scsc_log_collector_is_observer(true);
 #endif
+	}
 
 	mxlogger->configured = false;
 	mxlogger->initialized = false;
 
+#if IS_ENABLED(CONFIG_SCSC_LOG_COLLECTION)
+	scsc_log_collector_is_observer(true);
+#endif
 	mxlogger_enable(mxlogger, false);
 
 	/* Run deregistration before adquiring the mxlogger lock to avoid
@@ -1761,7 +1661,6 @@ void mxlogger_deinit(struct scsc_mx *mx, struct mxlogger *mxlogger)
 	mxlogger_deinit_channel(mxlogger, SCSC_MIF_ABS_TARGET_WLAN);
 	mxlogger_deinit_channel(mxlogger, SCSC_MIF_ABS_TARGET_WPAN);
 
-	mutex_lock(&global_lock);
 	mutex_lock(&mxlogger->lock);
 
 	list_for_each_entry_safe (mn, next, &mxlogger_list.list, list) {
@@ -1777,61 +1676,47 @@ void mxlogger_deinit(struct scsc_mx *mx, struct mxlogger *mxlogger)
 
 	SCSC_TAG_INFO(MXMAN, "End\n");
 	mutex_unlock(&mxlogger->lock);
-	mutex_unlock(&global_lock);
 }
 
-int mxlogger_register_observer(struct mxlogger *mxlogger, char *name, int subsystem)
+int mxlogger_register_observer(struct mxlogger *mxlogger, char *name)
 {
+	u8 i;
+
 	if (mxlogger->configured == false) {
 		SCSC_TAG_INFO(MXMAN, "Mxlogger not configured\n");
 		return -EIO;
 	}
+
 	mutex_lock(&mxlogger->lock);
 
-/* Switch logs to host */
-	switch (subsystem) {
-	case SCSC_SUBSYSTEM_WLAN:
-		mxlogger->wlan_observers++;
-		SCSC_TAG_INFO(MXMAN, "Register wlan observer[%d] -- %s\n", mxlogger->wlan_observers, name);
+	mxlogger->observers++;
 #if IS_ENABLED(CONFIG_BT_FWSNOOP_LOGGING)
-		mxlogger->wlan_registered_class += 1 << MXLOGGER_BITPOS_REALTIME;
-		active_wlan_registered_class = mxlogger->wlan_registered_class;
-		mxlogger_to_host_class(mxlogger, MXLOGGER_CHANNEL_WLAN, MXLOGGER_CLASS_REGISTERED);
+	mxlogger->registered_class += 1 << MXLOGGER_BITPOS_REALTIME;
+	active_registered_class = mxlogger->registered_class;
+	SCSC_TAG_INFO(MXMAN, "Register observer[%d](class: 0x%02x) -- %s\n", mxlogger->observers, mxlogger->registered_class, name);
 #else
-		mxlogger_to_host(mxlogger, MXLOGGER_CHANNEL_WLAN);
+	SCSC_TAG_INFO(MXMAN, "Register observer[%d] -- %s\n", mxlogger->observers, name);
 #endif
-		break;
-	case SCSC_SUBSYSTEM_WPAN:
-		mxlogger->bt_observers++;
-		SCSC_TAG_INFO(MXMAN, "Register bt observer[%d] -- %s\n", mxlogger->bt_observers, name);
+	/* Switch logs to host */
+	for (i = 0; i < MXLOGGER_CHANNELS; i++) {
 #if IS_ENABLED(CONFIG_BT_FWSNOOP_LOGGING)
-		mxlogger->bt_registered_class += 1 << MXLOGGER_BITPOS_REALTIME;
-		active_bt_registered_class = mxlogger->bt_registered_class;
-#endif
-		if (bt_fw_realtime_log_disabled) {
-			SCSC_TAG_INFO(MXMAN, "BT fw realtime log disabled, send logs to DRAM\n");
-			mxlogger_to_shared_dram(mxlogger, MXLOGGER_CHANNEL_WPAN);
-		} else {
-#if IS_ENABLED(CONFIG_BT_FWSNOOP_LOGGING)
-			mxlogger_to_host_class(mxlogger, MXLOGGER_CHANNEL_WPAN, MXLOGGER_CLASS_REGISTERED);
+		mxlogger_to_host_class(mxlogger, i, MXLOGGER_CLASS_REGISTERED);
 #else
-			mxlogger_to_host(mxlogger, MXLOGGER_CHANNEL_WPAN);
+		mxlogger_to_host(mxlogger, i);
 #endif
-		}
-		break;
-	default:
-		SCSC_TAG_ERR(MXMAN, "UNKNOWN SUBSYSTEM\n");
 	}
-
 #if IS_ENABLED(CONFIG_SCSC_LOG_COLLECTION)
 	scsc_log_collector_is_observer(true);
 #endif
 	mutex_unlock(&mxlogger->lock);
+
 	return 0;
 }
 
-int mxlogger_unregister_observer(struct mxlogger *mxlogger, char *name, int subsystem)
+int mxlogger_unregister_observer(struct mxlogger *mxlogger, char *name)
 {
+	u8 i;
+
 	if (mxlogger->configured == false) {
 		SCSC_TAG_INFO(MXMAN, "Mxlogger not configured\n");
 		return -EIO;
@@ -1839,67 +1724,41 @@ int mxlogger_unregister_observer(struct mxlogger *mxlogger, char *name, int subs
 
 	mutex_lock(&mxlogger->lock);
 
-	switch (subsystem) {
-	case SCSC_SUBSYSTEM_WLAN:
-		if (mxlogger->wlan_observers == 0) {
-			SCSC_TAG_INFO(MXMAN, "Incorrect number of wlan_observers\n");
-			mutex_unlock(&mxlogger->lock);
-			return -EIO;
-		}
-		mxlogger->wlan_observers--;
-		SCSC_TAG_INFO(MXMAN, "Un-register wlan observer[%d] -- %s\n", mxlogger->wlan_observers, name);
-#if IS_ENABLED(CONFIG_BT_FWSNOOP_LOGGING)
-		mxlogger->wlan_registered_class -= 1 << MXLOGGER_BITPOS_REALTIME;
-		active_wlan_registered_class = mxlogger->wlan_registered_class;
-#endif
-		if (mxlogger->wlan_observers == 0) {
-			mxlogger_to_shared_dram(mxlogger, MXLOGGER_CHANNEL_WLAN);
-		} else {
-#if IS_ENABLED(CONFIG_BT_FWSNOOP_LOGGING)
-			mxlogger_to_host_class(mxlogger, MXLOGGER_CHANNEL_WLAN, MXLOGGER_CLASS_REGISTERED);
-#else
-			mxlogger_to_host(mxlogger, MXLOGGER_CHANNEL_WLAN);
-#endif
-		}
-		break;
-	case SCSC_SUBSYSTEM_WPAN:
-		if (mxlogger->bt_observers == 0) {
-			SCSC_TAG_INFO(MXMAN, "Incorrect number of bt_observers\n");
-			mutex_unlock(&mxlogger->lock);
-			return -EIO;
-		}
-		mxlogger->bt_observers--;
-		SCSC_TAG_INFO(MXMAN, "Un-register bt observer[%d] -- %s\n", mxlogger->bt_observers, name);
-#if IS_ENABLED(CONFIG_BT_FWSNOOP_LOGGING)
-		mxlogger->bt_registered_class -= 1 << MXLOGGER_BITPOS_REALTIME;
-		active_bt_registered_class = mxlogger->bt_registered_class;
-#endif
-		if (mxlogger->bt_observers == 0 || bt_fw_realtime_log_disabled) {
-			mxlogger_to_shared_dram(mxlogger, MXLOGGER_CHANNEL_WPAN);
-		} else {
-#if IS_ENABLED(CONFIG_BT_FWSNOOP_LOGGING)
-			mxlogger_to_host_class(mxlogger, MXLOGGER_CHANNEL_WPAN, MXLOGGER_CLASS_REGISTERED);
-#else
-			mxlogger_to_host(mxlogger, MXLOGGER_CHANNEL_WPAN);
-#endif
-		}
-		break;
-	default:
-		SCSC_TAG_ERR(MXMAN, "UNKNOWN SUBSYSTEM\n");
+	if (mxlogger->observers == 0) {
+		SCSC_TAG_INFO(MXMAN, "Incorrect number of observers\n");
+		mutex_unlock(&mxlogger->lock);
+		return -EIO;
 	}
 
+	mxlogger->observers--;
+#if IS_ENABLED(CONFIG_BT_FWSNOOP_LOGGING)
+	mxlogger->registered_class -= 1 << MXLOGGER_BITPOS_REALTIME;
+	active_registered_class = mxlogger->registered_class;
+	SCSC_TAG_INFO(MXMAN, "UN-register observer[%d](class: 0x%02x) --  %s\n", mxlogger->observers, mxlogger->registered_class, name);
+#else
+	SCSC_TAG_INFO(MXMAN, "UN-register observer[%d] --  %s\n", mxlogger->observers, name);
+#endif
 #if defined(CONFIG_SCSC_PCIE_CHIP)
 	if(scsc_mx_service_claim(MXLOGGER_UNREGISTER_OBSERVER)) {
 		mutex_unlock(&mxlogger->lock);
 		return -EIO;
 	}
 #endif
-
+	if (mxlogger->observers == 0) {
+		for (i = 0; i < MXLOGGER_CHANNELS; i++)
+			mxlogger_to_shared_dram(mxlogger, i);
 #if IS_ENABLED(CONFIG_SCSC_LOG_COLLECTION)
-	if (!mxlogger->wlan_observers && (!mxlogger->bt_observers || bt_fw_realtime_log_disabled))
 		scsc_log_collector_is_observer(false);
 #endif
-
+	} else {
+		for (i = 0; i < MXLOGGER_CHANNELS; i++) {
+#if IS_ENABLED(CONFIG_BT_FWSNOOP_LOGGING)
+			mxlogger_to_host_class(mxlogger, i, MXLOGGER_CLASS_REGISTERED);
+#else
+			mxlogger_to_host(mxlogger, i);
+#endif
+		}
+	}
 	mutex_unlock(&mxlogger->lock);
 #if defined(CONFIG_SCSC_PCIE_CHIP)
 	scsc_mx_service_release(MXLOGGER_UNREGISTER_OBSERVER);
@@ -1908,8 +1767,10 @@ int mxlogger_unregister_observer(struct mxlogger *mxlogger, char *name, int subs
 }
 
 #if IS_ENABLED(CONFIG_BT_FWSNOOP_LOGGING)
-int mxlogger_register_observer_class(struct mxlogger *mxlogger, char *name, uint8_t class, int subsystem)
+int mxlogger_register_observer_class(struct mxlogger *mxlogger, char *name, uint8_t class)
 {
+	u8 i;
+
 	if (mxlogger->configured == false) {
 		SCSC_TAG_INFO(MXMAN, "Mxlogger not configured\n");
 		return -EIO;
@@ -1917,33 +1778,15 @@ int mxlogger_register_observer_class(struct mxlogger *mxlogger, char *name, uint
 
 	mutex_lock(&mxlogger->lock);
 
-/* Switch logs to host */
-	switch (subsystem) {
-	case SCSC_SUBSYSTEM_WLAN:
-		mxlogger->wlan_observers++;
-		SCSC_TAG_INFO(MXMAN, "Register wlan observer[%d] -- %s\n", mxlogger->wlan_observers, name);
-		mxlogger->wlan_registered_class += 1 << ((!class) ? MXLOGGER_BITPOS_REALTIME : MXLOGGER_BITPOS_RELAXED);
-		active_wlan_registered_class = mxlogger->wlan_registered_class;
+	mxlogger->observers++;
+	mxlogger->registered_class += 1 << ((!class) ? MXLOGGER_BITPOS_REALTIME : MXLOGGER_BITPOS_RELAXED);
 
-		mxlogger_to_host_class(mxlogger, MXLOGGER_CHANNEL_WLAN, class);
-		break;
-	case SCSC_SUBSYSTEM_WPAN:
-		mxlogger->bt_observers++;
-		SCSC_TAG_INFO(MXMAN, "Register bt observer[%d] -- %s\n", mxlogger->bt_observers, name);
-		mxlogger->bt_registered_class += 1 << ((!class) ? MXLOGGER_BITPOS_REALTIME : MXLOGGER_BITPOS_RELAXED);
-		active_bt_registered_class = mxlogger->bt_registered_class;
+	SCSC_TAG_INFO(MXMAN, "Register observer[%d] class[%s](0x%02x) -- %s\n",
+				mxlogger->observers, class ? "RELAXED" : "REALTIME", mxlogger->registered_class, name);
 
-		if (bt_fw_realtime_log_disabled) {
-			SCSC_TAG_INFO(MXMAN, "BT fw realtime log disabled, send logs to DRAM\n");
-			mxlogger_to_shared_dram(mxlogger, MXLOGGER_CHANNEL_WPAN);
-		} else {
-			mxlogger_to_host_class(mxlogger, MXLOGGER_CHANNEL_WPAN, class);
-		}
-		break;
-	default:
-			SCSC_TAG_ERR(MXMAN, "UNKNOWN SUBSYSTEM\n");
-	}
-
+	/* Switch logs to host */
+	for (i = 0; i < MXLOGGER_CHANNELS; i++)
+		mxlogger_to_host_class(mxlogger, i, class);
 #if IS_ENABLED(CONFIG_SCSC_LOG_COLLECTION)
 	scsc_log_collector_is_observer(true);
 #endif
@@ -1953,8 +1796,10 @@ int mxlogger_register_observer_class(struct mxlogger *mxlogger, char *name, uint
 	return 0;
 }
 
-int mxlogger_unregister_observer_class(struct mxlogger *mxlogger, char *name, uint8_t class, int subsystem)
+int mxlogger_unregister_observer_class(struct mxlogger *mxlogger, char *name, uint8_t class)
 {
+	u8 i;
+
 	if (mxlogger->configured == false) {
 		SCSC_TAG_INFO(MXMAN, "Mxlogger not configured\n");
 		return -EIO;
@@ -1962,57 +1807,33 @@ int mxlogger_unregister_observer_class(struct mxlogger *mxlogger, char *name, ui
 
 	mutex_lock(&mxlogger->lock);
 
-	switch (subsystem) {
-	case SCSC_SUBSYSTEM_WLAN:
-		if (mxlogger->wlan_observers == 0) {
-			SCSC_TAG_INFO(MXMAN, "Incorrect number of wlan_observers\n");
-			mutex_unlock(&mxlogger->lock);
-			return -EIO;
-		}
-		mxlogger->wlan_observers--;
-		SCSC_TAG_INFO(MXMAN, "Un-register wlan observer[%d] -- %s\n", mxlogger->wlan_observers, name);
-		mxlogger->wlan_registered_class -= 1 << ((!class) ? MXLOGGER_BITPOS_REALTIME : MXLOGGER_BITPOS_RELAXED);
-		active_wlan_registered_class = mxlogger->wlan_registered_class;
-
-		if (mxlogger->wlan_observers == 0) {
-			mxlogger_to_shared_dram(mxlogger, MXLOGGER_CHANNEL_WLAN);
-		} else {
-			mxlogger_to_host_class(mxlogger, MXLOGGER_CHANNEL_WLAN, MXLOGGER_CLASS_REGISTERED);
-		}
-		break;
-	case SCSC_SUBSYSTEM_WPAN:
-		if (mxlogger->bt_observers == 0) {
-			SCSC_TAG_INFO(MXMAN, "Incorrect number of bt_observers\n");
-			mutex_unlock(&mxlogger->lock);
-			return -EIO;
-		}
-		mxlogger->bt_observers--;
-		SCSC_TAG_INFO(MXMAN, "Un-register bt observer[%d] -- %s\n", mxlogger->bt_observers, name);
-		mxlogger->bt_registered_class -= 1 << ((!class) ? MXLOGGER_BITPOS_REALTIME : MXLOGGER_BITPOS_RELAXED);
-		active_bt_registered_class = mxlogger->bt_registered_class;
-
-		if (mxlogger->bt_observers == 0 || bt_fw_realtime_log_disabled) {
-			mxlogger_to_shared_dram(mxlogger, MXLOGGER_CHANNEL_WPAN);
-		} else {
-			mxlogger_to_host_class(mxlogger, MXLOGGER_CHANNEL_WPAN, MXLOGGER_CLASS_REGISTERED);
-		}
-		break;
-	default:
-		SCSC_TAG_ERR(MXMAN, "UNKNOWN SUBSYSTEM\n");
+	if (mxlogger->observers == 0) {
+		SCSC_TAG_INFO(MXMAN, "Incorrect number of observers\n");
+		mutex_unlock(&mxlogger->lock);
+		return -EIO;
 	}
 
+	mxlogger->observers--;
+	mxlogger->registered_class -= 1 << ((!class) ? MXLOGGER_BITPOS_REALTIME : MXLOGGER_BITPOS_RELAXED);
+	active_registered_class = mxlogger->registered_class;
+
+	SCSC_TAG_INFO(MXMAN, "UN-register observer[%d](class: 0x%02x) --  %s\n", mxlogger->observers, mxlogger->registered_class, name);
 #if defined(CONFIG_SCSC_PCIE_CHIP)
 	if(scsc_mx_service_claim(MXLOGGER_UNREGISTER_OBSERVER)) {
 		mutex_unlock(&mxlogger->lock);
 		return -EIO;
 	}
 #endif
-
+	if (mxlogger->observers == 0) {
+		for (i = 0; i < MXLOGGER_CHANNELS; i++)
+			mxlogger_to_shared_dram(mxlogger, i);
 #if IS_ENABLED(CONFIG_SCSC_LOG_COLLECTION)
-	if (!mxlogger->wlan_observers && (!mxlogger->bt_observers || bt_fw_realtime_log_disabled))
 		scsc_log_collector_is_observer(false);
 #endif
-
+	} else {
+		for (i = 0; i < MXLOGGER_CHANNELS; i++)
+			mxlogger_to_host_class(mxlogger, i, MXLOGGER_CLASS_REGISTERED);
+	}
 	mutex_unlock(&mxlogger->lock);
 #if defined(CONFIG_SCSC_PCIE_CHIP)
 	scsc_mx_service_release(MXLOGGER_UNREGISTER_OBSERVER);
@@ -2024,35 +1845,19 @@ int mxlogger_unregister_observer_class(struct mxlogger *mxlogger, char *name, ui
 /* Global observer are not associated to any [mx] mxlogger instance. So it registers as
  * an observer to all the [mx] mxlogger instances.
  */
-int mxlogger_register_global_observer(char *name, int subsystem)
+int mxlogger_register_global_observer(char *name)
 {
 	struct mxlogger_node *mn, *next;
 
 	mutex_lock(&global_lock);
 
-	switch (subsystem) {
-	case SCSC_SUBSYSTEM_WLAN:
-		active_global_wlan_observers++;
-		SCSC_TAG_INFO(MXMAN, "Register wlan subsystem global observer[%d] -- %s\n", active_global_wlan_observers, name);
-		break;
-	case SCSC_SUBSYSTEM_WPAN:
-		active_global_bt_observers++;
-		SCSC_TAG_INFO(MXMAN, "Register bt subsystem global observer[%d] -- %s\n", active_global_bt_observers, name);
-		break;
-	default:
-		SCSC_TAG_ERR(MXMAN, "UNKNOWN SUBSYSTEM\n");
-	}
+	active_global_observers++;
+
+	SCSC_TAG_INFO(MXMAN, "Register global observer[%d] -- %s\n", active_global_observers, name);
 
 	if (list_empty(&mxlogger_list.list)) {
 #if IS_ENABLED(CONFIG_BT_FWSNOOP_LOGGING)
-		switch (subsystem) {
-		case SCSC_SUBSYSTEM_WLAN:
-			active_wlan_registered_class += 1 << MXLOGGER_BITPOS_REALTIME;
-			break;
-		case SCSC_SUBSYSTEM_WPAN:
-			active_bt_registered_class += 1 << MXLOGGER_BITPOS_REALTIME;
-			break;
-		}
+		active_registered_class += 1 << MXLOGGER_BITPOS_REALTIME;
 #endif
 		SCSC_TAG_INFO(MXMAN, "No instances of mxman\n");
 		mutex_unlock(&global_lock);
@@ -2061,7 +1866,7 @@ int mxlogger_register_global_observer(char *name, int subsystem)
 
 	list_for_each_entry_safe (mn, next, &mxlogger_list.list, list) {
 		/* There is a mxlogger instance */
-		mxlogger_register_observer(mn->mxl, name, subsystem);
+		mxlogger_register_observer(mn->mxl, name);
 	}
 	mutex_unlock(&global_lock);
 
@@ -2069,37 +1874,20 @@ int mxlogger_register_global_observer(char *name, int subsystem)
 }
 EXPORT_SYMBOL(mxlogger_register_global_observer);
 
-int mxlogger_unregister_global_observer(char *name, int subsystem)
+int mxlogger_unregister_global_observer(char *name)
 {
 	struct mxlogger_node *mn, *next;
 
 	mutex_lock(&global_lock);
 
-	switch (subsystem) {
-	case SCSC_SUBSYSTEM_WLAN:
-		if (active_global_wlan_observers)
-			active_global_wlan_observers--;
-		SCSC_TAG_INFO(MXMAN, "UN-register wlan subsystem global observer[%d] -- %s\n", active_global_wlan_observers, name);
-		break;
-	case SCSC_SUBSYSTEM_WPAN:
-		if (active_global_bt_observers)
-			active_global_bt_observers--;
-		SCSC_TAG_INFO(MXMAN, "UN-register bt subsystem global observer[%d] -- %s\n", active_global_bt_observers, name);
-		break;
-	default:
-		SCSC_TAG_ERR(MXMAN, "UNKNOWN SUBSYSTEM\n");
-	}
+	if (active_global_observers)
+		active_global_observers--;
+
+	SCSC_TAG_INFO(MXMAN, "UN-register global observer[%d] --  %s\n", active_global_observers, name);
 
 	if (list_empty(&mxlogger_list.list)) {
 #if IS_ENABLED(CONFIG_BT_FWSNOOP_LOGGING)
-		switch (subsystem) {
-		case SCSC_SUBSYSTEM_WLAN:
-			active_wlan_registered_class -= 1 << MXLOGGER_BITPOS_REALTIME;
-			break;
-		case SCSC_SUBSYSTEM_WPAN:
-			active_bt_registered_class -= 1 << MXLOGGER_BITPOS_REALTIME;
-			break;
-		}
+		active_registered_class -= 1 << MXLOGGER_BITPOS_REALTIME;
 #endif
 		SCSC_TAG_INFO(MXMAN, "No instances of mxman\n");
 		mutex_unlock(&global_lock);
@@ -2108,7 +1896,7 @@ int mxlogger_unregister_global_observer(char *name, int subsystem)
 
 	list_for_each_entry_safe (mn, next, &mxlogger_list.list, list) {
 		/* There is a mxlogger instance */
-		mxlogger_unregister_observer(mn->mxl, name, subsystem);
+		mxlogger_unregister_observer(mn->mxl, name);
 	}
 
 	mutex_unlock(&global_lock);
@@ -2117,37 +1905,20 @@ int mxlogger_unregister_global_observer(char *name, int subsystem)
 EXPORT_SYMBOL(mxlogger_unregister_global_observer);
 
 #if IS_ENABLED(CONFIG_BT_FWSNOOP_LOGGING)
-int mxlogger_register_global_observer_class(char *name, uint8_t class, int subsystem)
+int mxlogger_register_global_observer_class(char *name, uint8_t class)
 {
 	struct mxlogger_node *mn, *next;
 
 	mutex_lock(&global_lock);
 
-	switch (subsystem) {
-	case SCSC_SUBSYSTEM_WLAN:
-		active_global_wlan_observers++;
-		SCSC_TAG_INFO(MXMAN, "Register wlan subsystem global observer[%d] class[%s] -- %s\n",
-		      active_global_wlan_observers, class ? "RELAXED" : "REALTIME", name);
-		break;
-	case SCSC_SUBSYSTEM_WPAN:
-		active_global_bt_observers++;
-		SCSC_TAG_INFO(MXMAN, "Register bt subsystem global observer[%d] class[%s]-- %s\n",
-		      active_global_bt_observers, class ? "RELAXED" : "REALTIME", name);
-		break;
-	default:
-		SCSC_TAG_ERR(MXMAN, "UNKNOWN SUBSYSTEM\n");
-	}
+	active_global_observers++;
+
+	SCSC_TAG_INFO(MXMAN, "Register global observer[%d] class[%s] -- %s\n",
+		      active_global_observers, class ? "RELAXED" : "REALTIME", name);
 
 	if (list_empty(&mxlogger_list.list)) {
 #if IS_ENABLED(CONFIG_BT_FWSNOOP_LOGGING)
-		switch (subsystem) {
-		case SCSC_SUBSYSTEM_WLAN:
-			active_wlan_registered_class += 1 << ((!class) ? MXLOGGER_BITPOS_REALTIME : MXLOGGER_BITPOS_RELAXED);
-			break;
-		case SCSC_SUBSYSTEM_WPAN:
-			active_bt_registered_class += 1 << ((!class) ? MXLOGGER_BITPOS_REALTIME : MXLOGGER_BITPOS_RELAXED);
-			break;
-		}
+		active_registered_class += 1 << ((!class) ? MXLOGGER_BITPOS_REALTIME : MXLOGGER_BITPOS_RELAXED);
 #endif
 		SCSC_TAG_INFO(MXMAN, "No instances of mxman\n");
 		mutex_unlock(&global_lock);
@@ -2156,7 +1927,7 @@ int mxlogger_register_global_observer_class(char *name, uint8_t class, int subsy
 
 	list_for_each_entry_safe (mn, next, &mxlogger_list.list, list) {
 		/* There is a mxlogger instance */
-		mxlogger_register_observer_class(mn->mxl, name, class, subsystem);
+		mxlogger_register_observer_class(mn->mxl, name, class);
 	}
 	mutex_unlock(&global_lock);
 
@@ -2164,39 +1935,20 @@ int mxlogger_register_global_observer_class(char *name, uint8_t class, int subsy
 }
 EXPORT_SYMBOL(mxlogger_register_global_observer_class);
 
-int mxlogger_unregister_global_observer_class(char *name, uint8_t class, int subsystem)
+int mxlogger_unregister_global_observer_class(char *name, uint8_t class)
 {
 	struct mxlogger_node *mn, *next;
 
 	mutex_lock(&global_lock);
 
-	switch (subsystem) {
-	case SCSC_SUBSYSTEM_WLAN:
-		if (active_global_wlan_observers)
-			active_global_wlan_observers--;
-		SCSC_TAG_INFO(MXMAN, "Un-register wlan subsystem global observer[%d] class[%s] -- %s\n",
-		      active_global_wlan_observers, class ? "RELAXED" : "REALTIME", name);
-		break;
-	case SCSC_SUBSYSTEM_WPAN:
-		if (active_global_bt_observers)
-			active_global_bt_observers--;
-		SCSC_TAG_INFO(MXMAN, "Un-register bt subsystem global observer[%d] class[%s]-- %s\n",
-		      active_global_bt_observers, class ? "RELAXED" : "REALTIME", name);
-		break;
-	default:
-		SCSC_TAG_ERR(MXMAN, "UNKNOWN SUBSYSTEM\n");
-	}
+	if (active_global_observers)
+		active_global_observers--;
+
+	SCSC_TAG_INFO(MXMAN, "UN-register global observer[%d] --  %s\n", active_global_observers, name);
 
 	if (list_empty(&mxlogger_list.list)) {
 #if IS_ENABLED(CONFIG_BT_FWSNOOP_LOGGING)
-		switch (subsystem) {
-		case SCSC_SUBSYSTEM_WLAN:
-			active_wlan_registered_class -= 1 << ((!class) ? MXLOGGER_BITPOS_REALTIME : MXLOGGER_BITPOS_RELAXED);
-			break;
-		case SCSC_SUBSYSTEM_WPAN:
-			active_bt_registered_class -= 1 << ((!class) ? MXLOGGER_BITPOS_REALTIME : MXLOGGER_BITPOS_RELAXED);
-			break;
-		}
+		active_registered_class -= 1 << ((!class) ? MXLOGGER_BITPOS_REALTIME : MXLOGGER_BITPOS_RELAXED);
 #endif
 		SCSC_TAG_INFO(MXMAN, "No instances of mxman\n");
 		mutex_unlock(&global_lock);
@@ -2205,7 +1957,7 @@ int mxlogger_unregister_global_observer_class(char *name, uint8_t class, int sub
 
 	list_for_each_entry_safe (mn, next, &mxlogger_list.list, list) {
 		/* There is a mxlogger instance */
-		mxlogger_unregister_observer_class(mn->mxl, name, class, subsystem);
+		mxlogger_unregister_observer_class(mn->mxl, name, class);
 	}
 
 	mutex_unlock(&global_lock);
@@ -2454,3 +2206,4 @@ exit:
 	return fw_buf;
 }
 #endif
+

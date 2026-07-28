@@ -1592,28 +1592,6 @@ int slsi_set_sta_bss_info(struct wiphy *wiphy, struct net_device *dev, struct sl
 	return 0;
 }
 
-bool slsi_is_akm_downgrade_allowed(struct net_device *dev, struct cfg80211_connect_params *sme)
-{
-	int i;
-	bool found_sae = false;
-	bool found_psk = false;
-
-	for (i = 0; i < sme->crypto.n_akm_suites; i++) {
-		if (sme->crypto.akm_suites[i] == WLAN_AKM_SUITE_SAE)
-			found_sae = true;
-		else if (sme->crypto.akm_suites[i] == WLAN_AKM_SUITE_PSK)
-			found_psk = true;
-
-		if (found_sae && found_psk) {
-			SLSI_NET_DBG1(dev, SLSI_CFG80211, "Downgrade AKM is allowed\n");
-			return true;
-		}
-	}
-
-	SLSI_NET_DBG1(dev, SLSI_CFG80211, "Downgrade AKM is not allowed\n");
-	return false;
-}
-
 void slsi_config_rsn_ie(struct net_device *dev, struct cfg80211_connect_params *sme)
 {
 	struct netdev_vif *ndev_vif = netdev_priv(dev);
@@ -1700,7 +1678,6 @@ int slsi_connect(struct wiphy *wiphy, struct net_device *dev,
 	struct ieee80211_channel *channel;
 	u8                  peer_address[ETH_ALEN] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
 	u16                 center_freq = 0;
-	bool                akm_downgrade_allowed;
 
 	if (slsi_is_test_mode_enabled()) {
 		SLSI_NET_INFO(dev, "Skip sending signal, WlanLite FW does not support MLME_CONNECT.request\n");
@@ -1861,13 +1838,6 @@ int slsi_connect(struct wiphy *wiphy, struct net_device *dev,
 		SLSI_NET_ERR(dev, "Failed to set extended capability MIB: %d\n", r);
 
 	slsi_config_rsn_ie(dev, sme);
-
-	/* Let the firmware know that it can downgrade to PSK from SAE */
-	akm_downgrade_allowed = slsi_is_akm_downgrade_allowed(dev, sme);
-	if (akm_downgrade_allowed)
-		slsi_set_mib_roam(sdev, NULL, SLSI_PSID_UNIFI_ROAM_DOWNGRADE_AKM_ALLOWED, 1);
-	else
-		slsi_set_mib_roam(sdev, NULL, SLSI_PSID_UNIFI_ROAM_DOWNGRADE_AKM_ALLOWED, 0);
 
 	slsi_conn_log2us_connect_sta_info(sdev, dev);
 	slsi_conn_log2us_connecting(sdev, dev, sme);
@@ -4342,8 +4312,7 @@ int slsi_synchronised_response(struct wiphy *wiphy, struct net_device *dev,
 #endif
 	r = slsi_mlme_synchronised_response(sdev, dev, params);
 	SLSI_MUTEX_UNLOCK(ndev_vif->vif_mutex);
-	if (slsi_wake_lock_active(&ndev_vif->wlan_wl_sae))
-		slsi_wake_unlock(&ndev_vif->wlan_wl_sae);
+	slsi_wake_unlock(&ndev_vif->wlan_wl_sae);
 	return r;
 }
 

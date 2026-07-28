@@ -1003,6 +1003,7 @@ static void cac_process_addts_rsp(struct slsi_dev *sdev, struct net_device *netd
 	if (WLBT_WARN_ON(!peer))
 		return;
 
+	SLSI_MUTEX_LOCK(sdev->tspec_mutex);
 	itr = tspec_list;
 	while (itr != NULL) {
 		if (itr->dialog_token == rsp->hdr.dialog_token) {
@@ -1013,14 +1014,17 @@ static void cac_process_addts_rsp(struct slsi_dev *sdev, struct net_device *netd
 	}
 	if (itr == NULL) {
 		SLSI_ERR(sdev, "CAC: No matching TSPEC found for ADDTS response\n");
+		SLSI_MUTEX_UNLOCK(sdev->tspec_mutex);
 		return;
 	}
 
 	if (rsp->hdr.status_code != ADDTS_STATUS_ACCEPTED) {
 		SLSI_ERR(sdev, "CAC: TSPEC rejected (status=0x%02X)", rsp->hdr.status_code);
 		cac_delete_tspec_by_state(sdev, itr->id, 0);
+		SLSI_MUTEX_UNLOCK(sdev->tspec_mutex);
 		return;
 	}
+	SLSI_MUTEX_UNLOCK(sdev->tspec_mutex);
 
 	if ((ccx_status == BSS_CCX_ENABLED) && cac_find_edca_ie(ie, ie_len, &tsid, &msdu_lifetime) != 0)
 		msdu_lifetime = MSDU_LIFETIME_DEFAULT;
@@ -1100,7 +1104,9 @@ static void cac_process_addts_rsp(struct slsi_dev *sdev, struct net_device *netd
 		  * Use UP from old entry so FW can replace the medium time
 		  * Delete the old entry in host, and replace UP in new entry.
 		  */
+		SLSI_MUTEX_LOCK(sdev->tspec_mutex);
 		cac_delete_tspec_by_state(sdev, entry->id, 1);
+		SLSI_MUTEX_UNLOCK(sdev->tspec_mutex);
 		if (priority != prev_priority) {
 			itr->tspec.ts_info[1] &= ~(7 << 3) ; /*clear the value*/
 			itr->tspec.ts_info[1] |= prev_priority << 3 ; /*set the value*/
@@ -1409,12 +1415,12 @@ void cac_update_roam_traffic_params(struct slsi_dev *sdev, struct net_device *de
 		return;
 
 	/* update the admitted TSPECs from assoc resp and set traffic params in FW.*/
-	SLSI_MUTEX_LOCK(sdev->tspec_mutex);
 	for (i = 0; i < assoc_rsp_tspec_count; i++) {
 		assoc_rsp_tspec = (struct wmm_tspec_element *)tspec_ie_arr[i];
 		SLSI_DBG3(sdev, SLSI_MLME, "rsp_tspec:[%d] ts: [%x|%x|%x] medium time[%x]\n", i,
 			  assoc_rsp_tspec->ts_info[0], assoc_rsp_tspec->ts_info[1], assoc_rsp_tspec->ts_info[2],
 			  assoc_rsp_tspec->medium_time);
+
 		itr = find_tspec_entry((assoc_rsp_tspec->ts_info[0] & 0x1E) >> 1, 0);
 		if (!itr) {
 			SLSI_DBG3(sdev, SLSI_MLME, "tspec entry not found\n");
@@ -1430,5 +1436,5 @@ void cac_update_roam_traffic_params(struct slsi_dev *sdev, struct net_device *de
 		slsi_mlme_set_traffic_parameters(sdev, dev, priority, assoc_rsp_tspec->medium_time,
 						 assoc_rsp_tspec->minimum_data_rate, ndev_vif->sta.sta_bss->bssid);
 	}
-	SLSI_MUTEX_UNLOCK(sdev->tspec_mutex);
 }
+
