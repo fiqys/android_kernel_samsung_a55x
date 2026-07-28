@@ -38,6 +38,7 @@
 #include "mgmt/user_session.h"
 #include "mgmt/ksmbd_ida.h"
 #include "ndr.h"
+#include "transport_tcp.h"
 
 /**
  * Function to get filename or folder name
@@ -7477,6 +7478,9 @@ static int fsctl_query_iface_info_ioctl(struct ksmbd_conn *conn,
 		bool ipv4_set = false;
 
 		if (netdev->type == ARPHRD_LOOPBACK)
+			continue;
+
+		if (!ksmbd_find_netdev_name_iface_list(netdev->name))
 			continue;
 
 		flags = dev_get_flags(netdev);
