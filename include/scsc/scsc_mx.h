@@ -527,9 +527,9 @@ void* scsc_service_mxlogger_buff(struct scsc_service *service);
 /* If there is no service/mxman associated, register the observer as global (will affect all the mx instanes)*/
 /* Users of these functions should ensure that the registers/unregister functions are balanced (i.e. if observer is registed as global,
  * it _has_ to unregister as global) */
-int scsc_service_register_observer(struct scsc_service *service, char *name, int subsystem);
+int scsc_service_register_observer(struct scsc_service *service, char *name);
 /* Unregister an observer */
-int scsc_service_unregister_observer(struct scsc_service *service, char *name, int subsystem);
+int scsc_service_unregister_observer(struct scsc_service *service, char *name);
 
 int scsc_service_register_check_bt_status_cb(void(*status_cb)(bool bt_on));
 int scsc_service_unregister_check_bt_status_cb(void);

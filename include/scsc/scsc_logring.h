@@ -712,8 +712,8 @@ int scsc_printk_bin(int force, int tag, int dlev, const void *start, size_t len)
 
 /* callbacks to mxman */
 struct scsc_logring_mx_cb {
-	int (*scsc_logring_register_observer)(struct scsc_logring_mx_cb *mx_cb, char *name, int subsystem);
-	int (*scsc_logring_unregister_observer)(struct scsc_logring_mx_cb *mx_cb, char *name, int subsystem);
+	int (*scsc_logring_register_observer)(struct scsc_logring_mx_cb *mx_cb, char *name);
+	int (*scsc_logring_unregister_observer)(struct scsc_logring_mx_cb *mx_cb, char *name);
 };
 
 int scsc_logring_register_mx_cb(struct scsc_logring_mx_cb *mx_cb);
