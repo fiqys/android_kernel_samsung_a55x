@@ -2129,36 +2129,36 @@ EXPORT_SYMBOL(scsc_service_pm_qos_remove_request);
 /* If there is no service/mxman associated, register the observer as global (will affect all the mx instanes)*/
 /* Users of these functions should ensure that the registers/unregister functions are balanced (i.e. if observer is registed as global,
  * it _has_ to unregister as global) */
-int scsc_service_register_observer(struct scsc_service *service, char *name, int subsystem)
+int scsc_service_register_observer(struct scsc_service *service, char *name)
 {
 	struct scsc_mx      *mx;
 
 	if (!service)
-		return mxlogger_register_global_observer(name, subsystem);
+		return mxlogger_register_global_observer(name);
 
 	mx = service->mx;
 
 	if (!mx)
 		return -EIO;
 
-	return mxlogger_register_observer(scsc_mx_get_mxlogger(mx), name, subsystem);
+	return mxlogger_register_observer(scsc_mx_get_mxlogger(mx), name);
 }
 EXPORT_SYMBOL(scsc_service_register_observer);
 
 /* If there is no service/mxman associated, unregister the observer as global (will affect all the mx instanes)*/
-int scsc_service_unregister_observer(struct scsc_service *service, char *name, int subsystem)
+int scsc_service_unregister_observer(struct scsc_service *service, char *name)
 {
 	struct scsc_mx      *mx;
 
 	if (!service)
-		return mxlogger_unregister_global_observer(name, subsystem);
+		return mxlogger_unregister_global_observer(name);
 
 	mx = service->mx;
 
 	if (!mx)
 		return -EIO;
 
-	return mxlogger_unregister_observer(scsc_mx_get_mxlogger(mx), name, subsystem);
+	return mxlogger_unregister_observer(scsc_mx_get_mxlogger(mx), name);
 }
 EXPORT_SYMBOL(scsc_service_unregister_observer);
 #endif

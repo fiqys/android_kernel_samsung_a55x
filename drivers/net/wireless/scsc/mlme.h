@@ -552,7 +552,6 @@ struct sk_buff *slsi_mlme_req_cfm_ind(struct slsi_dev *sdev,
 				      u16 ind_id,
 				      bool (*validate_cfm_wait_ind)(struct slsi_dev *sdev, struct net_device *dev, struct sk_buff *cfm));
 int slsi_mlme_set_country(struct slsi_dev *sdev, char *alpha2);
-int slsi_mlme_set_country_with_filter(struct slsi_dev *sdev, char *alpha2, bool disable_unii1_unii2a, bool disable_12_13);
 int slsi_mlme_set_roaming_parameters(struct slsi_dev *sdev, struct net_device *dev, u16 psid, int mib_value, int mib_length);
 int slsi_mlme_set_band_req(struct slsi_dev *sdev, struct net_device *dev, uint band, u16 avoid_disconnection);
 int slsi_mlme_set_scan_mode_req(struct slsi_dev *sdev, struct net_device *dev, u16 scan_mode, u16 max_channel_time,
@@ -582,6 +581,7 @@ int slsi_mlme_set_uwbcx(struct slsi_dev *sdev, struct net_device *dev);
 int slsi_mlme_get_elna_bypass_status(struct slsi_dev *sdev, struct net_device *elna_net_device);
 int slsi_mlme_set_scan_timing_req(struct slsi_dev *sdev, struct net_device *dev, u16 scan_mode, u16 max_channel_time,
 				  u16 home_away_time, u16 home_time, u16 max_channel_passive_time);
-int slsi_mlme_set_low_latency_mode_req(struct slsi_dev *sdev, struct net_device *dev, u16 latency_mode);
+int slsi_mlme_set_low_latency_mode_req(struct slsi_dev *sdev, struct net_device *dev, u16 latency_mode,
+				       u16 soft_roaming_scans_allowed);
 int slsi_mlme_set_max_bw(struct slsi_dev *sdev, struct net_device *dev, u16 protection_scope,
 			 u16 announce_validate, u16 bandwidth);

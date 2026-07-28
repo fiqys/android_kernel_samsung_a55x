@@ -427,10 +427,8 @@ static void test_scsc_mx_service_alloc_mboxes(struct kunit *test)
 	scsc_mx_service_mif_dump_registers(service);
 	scsc_service_get_device(service);
 	scsc_service_get_device_by_mx(scscmx);
-	scsc_service_register_observer(service, "name", 0);
-	scsc_service_register_observer(service, "name", 1);
-	scsc_service_unregister_observer(service, "name", 0);
-	scsc_service_unregister_observer(service, "name", 1);
+	scsc_service_register_observer(service, "name");
+	scsc_service_unregister_observer(service, "name");
 	scsc_service_get_panic_record(service, &dst, size);
 	fp_srv_message_handler("message", srvman);
 	scsc_mx_service_property_read_bool(service,"test");

@@ -305,7 +305,7 @@ static int kunit_mock_mxman_get_driver_version(char *version, size_t ver_sz)
 	return 0;
 }
 
-static int kunit_mock_scsc_service_register_observer(struct scsc_service *service, char *name, int subsystem)
+static int kunit_mock_scsc_service_register_observer(struct scsc_service *service, char *name)
 {
 	if (service && !service->mx)
 		return -EIO;
@@ -313,7 +313,7 @@ static int kunit_mock_scsc_service_register_observer(struct scsc_service *servic
 	return 0;
 }
 
-static int kunit_mock_scsc_service_unregister_observer(struct scsc_service *service, char *name, int subsystem)
+static int kunit_mock_scsc_service_unregister_observer(struct scsc_service *service, char *name)
 {
 	if (service && !service->mx)
 		return -EIO;

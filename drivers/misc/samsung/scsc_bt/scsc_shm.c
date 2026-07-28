@@ -233,7 +233,7 @@ static void scsc_bt_fw_log_update_filter(u8 trigger, u32 bt1_high, u32 bt1_low, 
 	/* Trigger ON */
 	if (trigger == 1) {
 		if (!bt_svc->fw_log.observers_registered) {
-			mxlogger_register_global_observer_class("FW_LOG", RELAXED_OBSERVERS, SCSC_SUBSYSTEM_WPAN);
+			mxlogger_register_global_observer_class("FW_LOG", RELAXED_OBSERVERS);
 			bt_svc->fw_log.observers_registered = true;
 			if (bt_svc->fw_log.fw_acl_read_state < FW_READ_ENABLE)
 				bt_svc->fw_log.fw_acl_read_state |= FW_READ_ENABLE;
@@ -244,7 +244,7 @@ static void scsc_bt_fw_log_update_filter(u8 trigger, u32 bt1_high, u32 bt1_low, 
 	/* Trigger OFF */
 	} else if (trigger == 0) {
 		if (bt_svc->fw_log.observers_registered) {
-			mxlogger_unregister_global_observer_class("FW_LOG", RELAXED_OBSERVERS, SCSC_SUBSYSTEM_WPAN);
+			mxlogger_unregister_global_observer_class("FW_LOG", RELAXED_OBSERVERS);
 			bt_svc->fw_log.observers_registered = false;
 			if (bt_svc->fw_log.fw_acl_read_state & FW_READ_ENABLE)
 				bt_svc->fw_log.fw_acl_read_state &= ~FW_READ_ENABLE;
@@ -2985,7 +2985,7 @@ void scsc_bt_fw_log_release(void)
 #if IS_ENABLED(CONFIG_SCSC_MXLOGGER)
 	/* Unregister FW_LOG observer to stop gathering FW LOG from cpacket_buffer */
 	if (bt_svc->fw_log.observers_registered == true) {
-		mxlogger_unregister_global_observer_class("FW_LOG", RELAXED_OBSERVERS, SCSC_SUBSYSTEM_WPAN);
+		mxlogger_unregister_global_observer_class("FW_LOG", RELAXED_OBSERVERS);
 		bt_svc->fw_log.observers_registered = false;
 		SCSC_TAG_INFO(BT_COMMON, "fwsnoop disabled\n");
 	}
