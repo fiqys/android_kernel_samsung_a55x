@@ -3496,6 +3496,14 @@ if (pin && sbi->pin_guaranteed_blkaddr) {
 
 ret = F2FS_I(inode)->i_gc_failures[GC_FAILURE_PIN];
 
+done:
+	f2fs_update_time(F2FS_I_SB(inode), REQ_TIME);
+out:
+	inode_unlock(inode);
+	mnt_drop_write_file(filp);
+	return ret;
+}
+
 static int f2fs_ioc_get_pin_file(struct file *filp, unsigned long arg)
 {
 	struct inode *inode = file_inode(filp);
