@@ -247,6 +247,7 @@ void __filemap_remove_folio(struct folio *folio, void *shadow)
 	filemap_unaccount_folio(mapping, folio);
 	page_cache_delete(mapping, folio, shadow);
 }
+EXPORT_SYMBOL(__filemap_remove_folio);
 
 void filemap_free_folio(struct address_space *mapping, struct folio *folio)
 {
@@ -1669,6 +1670,7 @@ void folio_end_writeback(struct folio *folio)
 		BUG();
 
 	smp_mb__after_atomic();
+	trace_android_vh_folio_end_writeback(folio);
 	folio_wake(folio, PG_writeback);
 	acct_reclaim_writeback(folio);
 	folio_put(folio);
