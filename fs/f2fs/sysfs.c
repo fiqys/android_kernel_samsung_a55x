@@ -1358,34 +1358,74 @@ out:
 	}
 
 #ifdef CONFIG_F2FS_SEC_SYSFS_DISCARD_SLAB_THRESHOLD
-if (!strcmp(a->attr.name, "discard_cmd_slab_thresh_MB")) {
-	SM_I(sbi)->dcc_info->discard_cmd_slab_thresh_cnt =
-		((unsigned int)t << 20) / sizeof(struct discard_cmd);
-	return count;
-}
+	if (!strcmp(a->attr.name, "discard_cmd_slab_thresh_MB")) {
+		SM_I(sbi)->dcc_info->discard_cmd_slab_thresh_cnt =
+			((unsigned int)t << 20) / sizeof(struct discard_cmd);
+		return count;
+	}
 
-if (!strcmp(a->attr.name, "undiscard_thresh_MB")) {
-	SM_I(sbi)->dcc_info->undiscard_thresh_blks =
-		(unsigned int)t << 8;
-	return count;
-}
+	if (!strcmp(a->attr.name, "undiscard_thresh_MB")) {
+		SM_I(sbi)->dcc_info->undiscard_thresh_blks =
+			(unsigned int)t << 8;
+		return count;
+	}
 #endif
 
-if (!strcmp(a->attr.name, "sec_pin_guaranteed_blkaddr")) {
-	if (t == NEW_ADDR || t == NULL_ADDR)
-		return -EINVAL;
-	if (t <= MAIN_BLKADDR(sbi) || t > MAX_BLKADDR(sbi))
-		return -EINVAL;
-	if (t % (BLKS_PER_SEC(sbi)) > 0)
-		return -EINVAL;
+	if (!strcmp(a->attr.name, "adjust_lock_priority")) {
+		if (t >= BIT(LOCK_NAME_MAX - 1))
+			return -EINVAL;
 
-	*ui = t;
+		sbi->adjust_lock_priority = t;
+		return count;
+	}
+
+	if (!strcmp(a->attr.name, "lock_duration_priority")) {
+		if (t < NICE_TO_PRIO(MIN_NICE) ||
+		    t > NICE_TO_PRIO(MAX_NICE))
+			return -EINVAL;
+
+		sbi->lock_duration_priority = t;
+		return count;
+	}
+
+	if (!strcmp(a->attr.name, "critical_task_priority")) {
+		if (t < NICE_TO_PRIO(MIN_NICE) ||
+		    t > NICE_TO_PRIO(MAX_NICE))
+			return -EINVAL;
+
+		if (!capable(CAP_SYS_NICE))
+			return -EPERM;
+
+		sbi->critical_task_priority = t;
+
+		if (sbi->cprc_info.f2fs_issue_ckpt)
+			set_user_nice(sbi->cprc_info.f2fs_issue_ckpt,
+				PRIO_TO_NICE(sbi->critical_task_priority));
+
+		if (sbi->gc_thread && sbi->gc_thread->f2fs_gc_task)
+			set_user_nice(sbi->gc_thread->f2fs_gc_task,
+				PRIO_TO_NICE(sbi->critical_task_priority));
+
+		return count;
+	}
+
+	if (!strcmp(a->attr.name, "sec_pin_guaranteed_blkaddr")) {
+		if (t == NEW_ADDR || t == NULL_ADDR)
+			return -EINVAL;
+
+		if (t <= MAIN_BLKADDR(sbi) || t > MAX_BLKADDR(sbi))
+			return -EINVAL;
+
+		if (t % BLKS_PER_SEC(sbi))
+			return -EINVAL;
+
+		*ui = t;
+		return count;
+	}
+
+	__sbi_store_value(a, sbi, ptr + a->offset, t);
+
 	return count;
-}
-
-__sbi_store_value(a, sbi, ptr + a->offset, t);
-
-return count;
 }
 
 static ssize_t f2fs_sbi_store(struct f2fs_attr *a,
@@ -1691,6 +1731,11 @@ F2FS_RW_ATTR(F2FS_SBI, f2fs_sb_info, hot_data_age_threshold, hot_data_age_thresh
 F2FS_RW_ATTR(F2FS_SBI, f2fs_sb_info, warm_data_age_threshold, warm_data_age_threshold);
 F2FS_RW_ATTR(F2FS_SBI, f2fs_sb_info, last_age_weight, last_age_weight);
 
+F2FS_RW_ATTR(F2FS_SBI, f2fs_sb_info, max_lock_elapsed_time, max_lock_elapsed_time);
+F2FS_RW_ATTR(F2FS_SBI, f2fs_sb_info, lock_duration_priority, lock_duration_priority);
+F2FS_RW_ATTR(F2FS_SBI, f2fs_sb_info, adjust_lock_priority, adjust_lock_priority);
+F2FS_RW_ATTR(F2FS_SBI, f2fs_sb_info, critical_task_priority, critical_task_priority);
+
 #define ATTR_LIST(name) (&f2fs_attr_##name.attr)
 static struct attribute *f2fs_attrs[] = {
 	ATTR_LIST(gc_urgent_sleep_time),
@@ -1822,6 +1867,10 @@ static struct attribute *f2fs_attrs[] = {
 	ATTR_LIST(hot_data_age_threshold),
 	ATTR_LIST(warm_data_age_threshold),
 	ATTR_LIST(last_age_weight),
+	ATTR_LIST(max_lock_elapsed_time),
+	ATTR_LIST(lock_duration_priority),
+	ATTR_LIST(adjust_lock_priority),
+	ATTR_LIST(critical_task_priority),
 	NULL,
 };
 ATTRIBUTE_GROUPS(f2fs);
