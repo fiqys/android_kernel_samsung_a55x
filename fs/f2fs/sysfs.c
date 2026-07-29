@@ -94,6 +94,7 @@ struct f2fs_attr {
 			 const char *buf, size_t len);
 	int struct_type;
 	int offset;
+	int size;
 	int id;
 };
 
@@ -453,11 +454,30 @@ static void __sec_bigdata_init_value(struct f2fs_sb_info *sbi,
 	}
 }
 
+static ssize_t __sbi_show_value(struct f2fs_attr *a,
+		struct f2fs_sb_info *sbi, char *buf,
+		unsigned char *value)
+{
+	switch (a->size) {
+	case 1:
+		return sysfs_emit(buf, "%u\n", *(u8 *)value);
+	case 2:
+		return sysfs_emit(buf, "%u\n", *(u16 *)value);
+	case 4:
+		return sysfs_emit(buf, "%u\n", *(u32 *)value);
+	case 8:
+		return sysfs_emit(buf, "%llu\n", *(u64 *)value);
+	default:
+		f2fs_bug_on(sbi, 1);
+		return sysfs_emit(buf,
+				"show sysfs node value with wrong type\n");
+	}
+}
+
 static ssize_t f2fs_sbi_show(struct f2fs_attr *a,
 			struct f2fs_sb_info *sbi, char *buf)
 {
 	unsigned char *ptr = NULL;
-	unsigned int *ui;
 
 	ptr = __struct_ptr(sbi, a->struct_type);
 	if (!ptr)
@@ -710,9 +730,30 @@ static ssize_t f2fs_sbi_show(struct f2fs_attr *a,
 	if (!strcmp(a->attr.name, "revoked_atomic_block"))
 		return sysfs_emit(buf, "%llu\n", sbi->revoked_atomic_block);
 
-	ui = (unsigned int *)(ptr + a->offset);
+	return __sbi_show_value(a, sbi, buf, ptr + a->offset);
+}
 
-	return sysfs_emit(buf, "%u\n", *ui);
+static void __sbi_store_value(struct f2fs_attr *a,
+			struct f2fs_sb_info *sbi,
+			unsigned char *ui, unsigned long value)
+{
+	switch (a->size) {
+	case 1:
+		*(u8 *)ui = value;
+		break;
+	case 2:
+		*(u16 *)ui = value;
+		break;
+	case 4:
+		*(u32 *)ui = value;
+		break;
+	case 8:
+		*(u64 *)ui = value;
+		break;
+	default:
+		f2fs_bug_on(sbi, 1);
+		f2fs_err(sbi, "store sysfs node value with wrong type");
+	}
 }
 #ifdef CONFIG_F2FS_ML_BASED_STREAM_SEPARATION
 static bool check_streamid_params(struct f2fs_sb_info *sbi)
@@ -1317,33 +1358,34 @@ out:
 	}
 
 #ifdef CONFIG_F2FS_SEC_SYSFS_DISCARD_SLAB_THRESHOLD
-	if (!strcmp(a->attr.name, "discard_cmd_slab_thresh_MB")) {
-		SM_I(sbi)->dcc_info->discard_cmd_slab_thresh_cnt =
-			((unsigned int)t << 20) / sizeof(struct discard_cmd);
-		return count;
-	}
+if (!strcmp(a->attr.name, "discard_cmd_slab_thresh_MB")) {
+	SM_I(sbi)->dcc_info->discard_cmd_slab_thresh_cnt =
+		((unsigned int)t << 20) / sizeof(struct discard_cmd);
+	return count;
+}
 
-	if (!strcmp(a->attr.name, "undiscard_thresh_MB")) {
-		SM_I(sbi)->dcc_info->undiscard_thresh_blks =
-			(unsigned int)t << 8;
-		return count;
-	}
+if (!strcmp(a->attr.name, "undiscard_thresh_MB")) {
+	SM_I(sbi)->dcc_info->undiscard_thresh_blks =
+		(unsigned int)t << 8;
+	return count;
+}
 #endif
 
-	if (!strcmp(a->attr.name, "sec_pin_guaranteed_blkaddr")) {
-		if (t == NEW_ADDR || t == NULL_ADDR)
-			return -EINVAL;
-		if (t <= MAIN_BLKADDR(sbi) || t > MAX_BLKADDR(sbi))
-			return -EINVAL;
-		if (t % (BLKS_PER_SEC(sbi)) > 0)
-			return -EINVAL;
-		*ui = t;
-		return count;
-	}
+if (!strcmp(a->attr.name, "sec_pin_guaranteed_blkaddr")) {
+	if (t == NEW_ADDR || t == NULL_ADDR)
+		return -EINVAL;
+	if (t <= MAIN_BLKADDR(sbi) || t > MAX_BLKADDR(sbi))
+		return -EINVAL;
+	if (t % (BLKS_PER_SEC(sbi)) > 0)
+		return -EINVAL;
 
-	*ui = (unsigned int)t;
-
+	*ui = t;
 	return count;
+}
+
+__sbi_store_value(a, sbi, ptr + a->offset, t);
+
+return count;
 }
 
 static ssize_t f2fs_sbi_store(struct f2fs_attr *a,
@@ -1437,29 +1479,33 @@ static struct f2fs_attr f2fs_attr_sb_##_name = {		\
 	.id	= F2FS_FEATURE_##_feat,				\
 }
 
-#define F2FS_ATTR_OFFSET(_struct_type, _name, _mode, _show, _store, _offset) \
+#define F2FS_ATTR_OFFSET(_struct_type, _name, _mode, _show, _store, _offset, _size) \
 static struct f2fs_attr f2fs_attr_##_name = {			\
 	.attr = {.name = __stringify(_name), .mode = _mode },	\
 	.show	= _show,					\
 	.store	= _store,					\
 	.struct_type = _struct_type,				\
-	.offset = _offset					\
+	.offset = _offset,					\
+	.size = _size						\
 }
 
 #define F2FS_RO_ATTR(struct_type, struct_name, name, elname)	\
 	F2FS_ATTR_OFFSET(struct_type, name, 0444,		\
 		f2fs_sbi_show, NULL,				\
-		offsetof(struct struct_name, elname))
+		offsetof(struct struct_name, elname),		\
+		sizeof_field(struct struct_name, elname))
 
 #define F2FS_RW_ATTR(struct_type, struct_name, name, elname)	\
 	F2FS_ATTR_OFFSET(struct_type, name, 0644,		\
 		f2fs_sbi_show, f2fs_sbi_store,			\
-		offsetof(struct struct_name, elname))
+		offsetof(struct struct_name, elname),		\
+		sizeof_field(struct struct_name, elname))
 
 #define F2FS_RW_ATTR_640(struct_type, struct_name, name, elname)	\
 	F2FS_ATTR_OFFSET(struct_type, name, 0640,		\
 		f2fs_sbi_show, f2fs_sbi_store,			\
-		offsetof(struct struct_name, elname))
+		offsetof(struct struct_name, elname),		\
+		sizeof(((struct struct_name *)0)->elname))
 
 #define F2FS_GENERAL_RO_ATTR(name) \
 static struct f2fs_attr f2fs_attr_##name = __ATTR(name, 0444, name##_show, NULL)
@@ -1470,6 +1516,7 @@ static struct f2fs_attr f2fs_attr_##_name = {			\
 	.show = f2fs_sbi_show,					\
 	.struct_type = _struct_type,				\
 	.offset = offsetof(struct _struct_name, _elname),       \
+	.size = sizeof_field(struct _struct_name, _elname),	\
 }
 
 F2FS_RW_ATTR(GC_THREAD, f2fs_gc_kthread, gc_urgent_sleep_time,
