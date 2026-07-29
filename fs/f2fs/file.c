@@ -3404,11 +3404,13 @@ int f2fs_pin_file_control(struct inode *inode, bool inc)
 
 	/* Use i_gc_failures for normal file as a risk signal. */
 	if (inc)
-		f2fs_i_gc_failures_write(inode, fi->i_gc_failures + 1);
+		f2fs_i_gc_failures_write(inode,
+				fi->i_gc_failures[GC_FAILURE_PIN] + 1);
 
-	if (fi->i_gc_failures > sbi->gc_pin_file_threshold) {
+	if (fi->i_gc_failures[GC_FAILURE_PIN] > sbi->gc_pin_file_threshold) {
 		f2fs_warn(sbi, "%s: Enable GC = ino %lx after %x GC trials",
-			  __func__, inode->i_ino, fi->i_gc_failures);
+			  __func__, inode->i_ino,
+			  fi->i_gc_failures[GC_FAILURE_PIN]);
 		clear_inode_flag(inode, FI_PIN_FILE);
 		return -EAGAIN;
 	}
@@ -3467,40 +3469,32 @@ static int f2fs_ioc_set_pin_file(struct file *filp, unsigned long arg)
 		goto out;
 	}
 
-	if (pin && sbi->pin_guaranteed_blkaddr) {
-		ret = filemap_write_and_wait_range(inode->i_mapping, 0, LLONG_MAX);
-		if (ret)
-			goto out;
+if (pin && sbi->pin_guaranteed_blkaddr) {
+	ret = filemap_write_and_wait_range(inode->i_mapping, 0, LLONG_MAX);
+	if (ret)
+		goto out;
 
-		set_inode_flag(inode, FI_SEC_MIGRATE);
-		f2fs_down_write(&F2FS_I(inode)->i_gc_rwsem[WRITE]);
+	set_inode_flag(inode, FI_SEC_MIGRATE);
+	f2fs_down_write(&F2FS_I(inode)->i_gc_rwsem[WRITE]);
 
-		ret = f2fs_migrate_pinned_file(inode);
-		if (ret) {
-			f2fs_up_write(&F2FS_I(inode)->i_gc_rwsem[WRITE]);
-			clear_inode_flag(inode, FI_SEC_MIGRATE);
-
-			ST_LOG("[DDP] f2fs_migrate_pinned_file() failed, ret: %d", ret);
-			goto out;
-		}
-
-		set_inode_flag(inode, FI_PIN_FILE);
-
+	ret = f2fs_migrate_pinned_file(inode);
+	if (ret) {
 		f2fs_up_write(&F2FS_I(inode)->i_gc_rwsem[WRITE]);
 		clear_inode_flag(inode, FI_SEC_MIGRATE);
-	} else {
-		set_inode_flag(inode, FI_PIN_FILE);
+
+		ST_LOG("[DDP] f2fs_migrate_pinned_file() failed, ret: %d", ret);
+		goto out;
 	}
 
-	ret = F2FS_I(inode)->i_gc_failures;
+	set_inode_flag(inode, FI_PIN_FILE);
 
-done:
-	f2fs_update_time(F2FS_I_SB(inode), REQ_TIME);
-out:
-	inode_unlock(inode);
-	mnt_drop_write_file(filp);
-	return ret;
+	f2fs_up_write(&F2FS_I(inode)->i_gc_rwsem[WRITE]);
+	clear_inode_flag(inode, FI_SEC_MIGRATE);
+} else {
+	set_inode_flag(inode, FI_PIN_FILE);
 }
+
+ret = F2FS_I(inode)->i_gc_failures[GC_FAILURE_PIN];
 
 static int f2fs_ioc_get_pin_file(struct file *filp, unsigned long arg)
 {
@@ -3508,7 +3502,7 @@ static int f2fs_ioc_get_pin_file(struct file *filp, unsigned long arg)
 	__u32 pin = 0;
 
 	if (is_inode_flag_set(inode, FI_PIN_FILE))
-		pin = F2FS_I(inode)->i_gc_failures;
+		pin = F2FS_I(inode)->i_gc_failures[GC_FAILURE_PIN];
 	return put_user(pin, (u32 __user *)arg);
 }
 
