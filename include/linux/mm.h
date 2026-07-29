@@ -3927,7 +3927,8 @@ int madvise_set_anon_name(struct mm_struct *mm, unsigned long start,
 #else
 static inline int
 madvise_set_anon_name(struct mm_struct *mm, unsigned long start,
-		      unsigned long len_in, struct anon_vma_name *anon_name) {
+		      unsigned long len_in, struct anon_vma_name *anon_name)
+{
 	return 0;
 }
 #endif
@@ -3956,5 +3957,8 @@ static inline unsigned long get_low_threshold(void)
 	else
 		return MB_TO_PAGES(200);
 }
+
+void prep_new_page(struct page *page, unsigned int order, gfp_t gfp_flags,
+		   unsigned int alloc_flags);
 
 #endif /* _LINUX_MM_H */

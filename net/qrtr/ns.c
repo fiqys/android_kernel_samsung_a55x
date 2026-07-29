@@ -804,6 +804,7 @@ void qrtr_ns_remove(void)
 {
 	kthread_flush_worker(&qrtr_ns.kworker);
 	kthread_stop(qrtr_ns.task);
+
 	sock_release(qrtr_ns.sock);
 }
 EXPORT_SYMBOL_GPL(qrtr_ns_remove);
