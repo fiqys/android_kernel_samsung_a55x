@@ -267,6 +267,7 @@
 		interrupts = <GIC_SPI INTREQ__DPU_DMA_RCD0 IRQ_TYPE_LEVEL_HIGH>;
 		interrupt-names = "dma";
 
+		status = "disabled";
 		attr = <DPP_ATTR_RCD>;
 		port = <0>;
 		scale_down = <1>;
@@ -478,7 +479,8 @@
 
 		partial-update;
 		hibernation;
-		rcd = <&drmdpp12>;
+		/* Disabled until when HWC supports the RCD layer */
+		/* rcd = <&drmdpp12>; */
 
 		/* reduce BW by considering vertiacal overlap */
 		//vote-overlap-bw;
