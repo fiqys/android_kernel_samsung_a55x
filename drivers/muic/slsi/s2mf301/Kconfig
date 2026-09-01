@@ -5,25 +5,6 @@ config MUIC_S2MF301
 	help
 	  If you say yes here you will get support for the S2MF301 MUIC chip.
 
-config TOP_S2MF301
-	bool "Using S2MF301 MUIC"
-	depends on USE_MUIC && MFD_S2MF301
-	default n
-	help
-	  If you say yes here you will get support
-	  for the S2MF301 Top driver
-	  for RID detection, Full-auto DC
-	  ''
-
-config TOP_S2MF301_SUPPORT_S2MC501
-    bool "Using S2MF301 TOP support auto pps"
-    default n
-    help
-      If you say yes here you will get support
-      for the S2MF301 Top driver
-      for auto pps function with S2MC501
-      ''
-
 config HV_MUIC_S2MF301_AFC
 	tristate "Using S2MF301 MUIC AFC"
 	depends on MUIC_HV && MUIC_S2MF301
