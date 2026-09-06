@@ -297,7 +297,6 @@
 				exposed-mode = <
 					&a55x_panel_display_mode_1080x2340_120hs
 					&a55x_panel_display_mode_1080x2340_60phs
-					&a55x_panel_display_mode_1080x2340_60hs
 					&a55x_panel_display_mode_1080x2340_30ns
 				>;
 
@@ -574,7 +573,6 @@
 				exposed-mode = <
 					&a55x_ana6710_panel_display_mode_1080x2340_120hs
 					&a55x_ana6710_panel_display_mode_1080x2340_60phs
-					&a55x_ana6710_panel_display_mode_1080x2340_60hs
 					&a55x_ana6710_panel_display_mode_1080x2340_30ns
 				>;
 
