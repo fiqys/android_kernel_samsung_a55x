@@ -731,6 +731,8 @@ static int usb_configuration_name(struct usb_configuration *config, struct usb_f
 	int use_ffs_mtp = 0;
 	struct f_ss_monitor *ss_monitor = func_to_ss_monitor(f_ss);
 
+        ss_monitor->usb_mode[0] = '\0';
+
 	opts = container_of(f_ss->fi, struct ss_monitor_instance, func_inst);
 
 	if (!strcmp(opts->name, "mtp") || !strcmp(opts->name, "ptp"))
@@ -777,7 +779,7 @@ static int usb_configuration_name(struct usb_configuration *config, struct usb_f
 	if (length)
 		ss_monitor->usb_mode[length-1] = 0;
 	else
-		strncat(ss_monitor->usb_mode, "func:empty", 11);
+		strscpy(ss_monitor->usb_mode, "func:empty", sizeof(ss_monitor->usb_mode));
 
 #ifdef CONFIG_USB_NOTIFY_PROC_LOG
 	store_usblog_notify(NOTIFY_USBMODE_EXTRA, (void *)ss_monitor->usb_mode, NULL);
