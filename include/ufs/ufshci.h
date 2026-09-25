@@ -181,6 +181,7 @@ static inline u32 ufshci_version(u32 major, u32 minor)
 #define UTP_TASK_REQ_COMPL			0x200
 #define UIC_COMMAND_COMPL			0x400
 #define DEVICE_FATAL_ERROR			0x800
+#define UTP_ERROR				0x1000
 #define CONTROLLER_FATAL_ERROR			0x10000
 #define SYSTEM_BUS_FATAL_ERROR			0x20000
 #define CRYPTO_ENGINE_FATAL_ERROR		0x40000
@@ -194,7 +195,7 @@ static inline u32 ufshci_version(u32 major, u32 minor)
 
 #define UFSHCD_UIC_MASK		(UIC_COMMAND_COMPL | UFSHCD_UIC_PWR_MASK)
 
-#define UFSHCD_ERROR_MASK	(UIC_ERROR | INT_FATAL_ERRORS)
+#define UFSHCD_ERROR_MASK	(UIC_ERROR | INT_FATAL_ERRORS | UTP_ERROR)
 
 #define INT_FATAL_ERRORS	(DEVICE_FATAL_ERROR |\
 				CONTROLLER_FATAL_ERROR |\
@@ -467,6 +468,10 @@ enum utp_ocs {
 
 enum {
 	MASK_OCS			= 0x0F,
+};
+
+enum {
+	MASK_OCS_CQ			= 0xF00,
 };
 
 /* The maximum length of the data byte count field in the PRDT is 256KB */
