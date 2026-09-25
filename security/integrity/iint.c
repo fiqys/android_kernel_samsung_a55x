@@ -188,6 +188,10 @@ void integrity_inode_free(struct inode *inode)
 
 	write_lock(&integrity_iint_lock);
 	iint = __integrity_iint_find(inode);
+	if (!iint) {
+		write_unlock(&integrity_iint_lock);
+		return;
+	}
 	rb_erase(&iint->rb_node, &integrity_iint_tree);
 	write_unlock(&integrity_iint_lock);
 
