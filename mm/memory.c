@@ -93,6 +93,10 @@
 #include <asm/tlb.h>
 #include <asm/tlbflush.h>
 
+#ifdef CONFIG_PAGE_BOOST_RECORDING
+#include <linux/io_record.h>
+#endif
+
 #include "pgalloc-track.h"
 #include "internal.h"
 #include "swap.h"
@@ -4605,7 +4609,7 @@ vm_fault_t finish_fault(struct vm_fault *vmf)
 }
 
 static unsigned long fault_around_bytes __read_mostly =
-	rounddown_pow_of_two(65536);
+	rounddown_pow_of_two(CONFIG_FAULT_AROUND_BYTES);
 
 #ifdef CONFIG_DEBUG_FS
 static int fault_around_bytes_get(void *data, u64 *val)
@@ -4713,6 +4717,9 @@ static inline bool should_fault_around(struct vm_fault *vmf)
 
 static vm_fault_t do_read_fault(struct vm_fault *vmf)
 {
+#ifdef CONFIG_PAGE_BOOST_RECORDING
+	struct vm_area_struct *vma = vmf->vma;
+#endif
 	vm_fault_t ret = 0;
 
 	trace_android_vh_tune_fault_around_bytes(&fault_around_bytes);
@@ -4728,6 +4735,10 @@ static vm_fault_t do_read_fault(struct vm_fault *vmf)
 		ret = do_fault_around(vmf);
 		if (ret)
 			return ret;
+#ifdef CONFIG_PAGE_BOOST_RECORDING
+	} else if (vma->vm_ops->map_pages && fault_around_bytes >> PAGE_SHIFT == 1) {
+		record_io_info(vma->vm_file, vmf->pgoff, 1);
+#endif
 	} else {
 		trace_android_vh_do_read_fault(vmf, fault_around_bytes);
 	}

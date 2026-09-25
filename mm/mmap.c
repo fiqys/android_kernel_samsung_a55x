@@ -49,6 +49,7 @@
 #include <linux/sched/mm.h>
 #include <linux/memfd.h>
 #include <linux/dma-buf.h>
+#include <linux/ratelimit.h>
 
 #include <linux/uaccess.h>
 #include <asm/cacheflush.h>
@@ -145,7 +146,8 @@ static void remove_vma(struct vm_area_struct *vma, bool unreachable)
 	vma_close(vma);
 	if (vma->vm_file) {
 		if (is_dma_buf_file(vma->vm_file))
-			dma_buf_unaccount_task(vma->vm_file->private_data, current);
+			dma_buf_unaccount_task(vma->vm_file->private_data,
+					       vma->vm_mm->abi_extend->dmabuf_info);
 		fput(vma->vm_file);
 	}
 	mpol_put(vma_policy(vma));
@@ -1747,6 +1749,13 @@ unsigned long vm_unmapped_area(struct vm_unmapped_area_info *info)
 	else
 		addr = unmapped_area(info);
 
+	if (IS_ERR_VALUE(addr)) {
+		pr_warn_ratelimited("%s err:%ld total_vm:0x%lx flags:0x%lx len:0x%lx low:0x%lx high:0x%lx mask:0x%lx offset:0x%lx\n",
+			__func__, addr, current->mm->total_vm, info->flags,
+			info->length, info->low_limit, info->high_limit,
+			info->align_mask, info->align_offset);
+	}
+
 	trace_vm_unmapped_area(addr, info);
 	return addr;
 }
@@ -2458,7 +2467,8 @@ int __split_vma(struct mm_struct *mm, struct vm_area_struct *vma,
 	if (new->vm_file) {
 		get_file(new->vm_file);
 		if (is_dma_buf_file(new->vm_file)) {
-			int acct_err = dma_buf_account_task(new->vm_file->private_data, current);
+			int acct_err = dma_buf_account_task(new->vm_file->private_data,
+							    new->vm_mm->abi_extend->dmabuf_info);
 
 			if (acct_err)
 				pr_err("failed to account dmabuf, err %d\n", acct_err);
