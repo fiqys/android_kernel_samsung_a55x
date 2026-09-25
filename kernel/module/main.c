@@ -973,6 +973,15 @@ static ssize_t show_taint(struct module_attribute *mattr,
 static struct module_attribute modinfo_taint =
 	__ATTR(taint, 0444, show_taint, NULL);
 
+static ssize_t show_reboot_multicmd(struct module_attribute *mattr,
+				struct module_kobject *mk, char *buffer)
+{
+	return sprintf(buffer, "%u\n", 1);
+}
+
+static struct module_attribute modinfo_reboot_multicmd =
+	__ATTR(reboot_multicmd, 0400, show_reboot_multicmd, NULL);
+
 struct module_attribute *modinfo_attrs[] = {
 	&module_uevent,
 	&modinfo_version,
@@ -985,6 +994,7 @@ struct module_attribute *modinfo_attrs[] = {
 #endif
 	&modinfo_initsize,
 	&modinfo_taint,
+	&modinfo_reboot_multicmd,
 #ifdef CONFIG_MODULE_UNLOAD
 	&modinfo_refcnt,
 #endif

@@ -16,6 +16,8 @@
 
 #include <asm/irq_regs.h>
 
+#include <linux/sec_debug.h>
+
 #include <trace/events/irq.h>
 
 #include "internals.h"
@@ -141,6 +143,7 @@ irqreturn_t __handle_irq_event_percpu(struct irq_desc *desc)
 	irqreturn_t retval = IRQ_NONE;
 	unsigned int irq = desc->irq_data.irq;
 	struct irqaction *action;
+	unsigned int __maybe_unused pcount;
 
 	record_irq_time(desc);
 
@@ -154,9 +157,11 @@ irqreturn_t __handle_irq_event_percpu(struct irq_desc *desc)
 		    !(action->flags & (IRQF_NO_THREAD | IRQF_PERCPU | IRQF_ONESHOT)))
 			lockdep_hardirq_threaded();
 
+		secdbg_prep_preempt_count(PCHECK_IRQ_ACTION, pcount);
 		trace_irq_handler_entry(irq, action);
 		res = action->handler(irq, action->dev_id);
 		trace_irq_handler_exit(irq, action, res);
+		secdbg_check_preempt_count(PCHECK_IRQ_ACTION, pcount, action->handler);
 
 		if (WARN_ONCE(!irqs_disabled(),"irq %u handler %pS enabled interrupts\n",
 			      irq, action->handler))

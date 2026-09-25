@@ -100,6 +100,7 @@
 #include <linux/tick.h>
 #include <linux/cpufreq_times.h>
 #include <linux/dma-buf.h>
+#include <linux/task_integrity.h>
 
 #include <asm/pgalloc.h>
 #include <linux/uaccess.h>
@@ -114,6 +115,15 @@
 
 #undef CREATE_TRACE_POINTS
 #include <trace/hooks/sched.h>
+
+#ifdef CONFIG_KDP_CRED
+#include <linux/kdp.h>
+#endif
+
+#ifdef CONFIG_SECURITY_DEFEX
+#include <linux/defex.h>
+#endif
+
 /*
  * Minimum number of threads to boot the kernel
  */
@@ -887,6 +897,7 @@ void __mmdrop(struct mm_struct *mm)
 	check_mm(mm);
 	put_user_ns(mm->user_ns);
 	mm_pasid_drop(mm);
+	kfree(mm->abi_extend);
 	free_mm(mm);
 }
 EXPORT_SYMBOL_GPL(__mmdrop);
@@ -932,7 +943,7 @@ void __put_task_struct(struct task_struct *tsk)
 	WARN_ON(refcount_read(&tsk->usage));
 	WARN_ON(tsk == current);
 
-	put_dmabuf_info(tsk);
+	put_dmabuf_info(tsk->dmabuf_info);
 	io_uring_free(tsk);
 	cgroup_free(tsk);
 	task_numa_free(tsk, true);
@@ -1286,6 +1297,14 @@ struct mm_struct *mm_alloc(void)
 		return NULL;
 
 	memset(mm, 0, sizeof(*mm));
+
+	mm->abi_extend = kmalloc(sizeof(*mm->abi_extend), GFP_KERNEL);
+	if (!mm->abi_extend) {
+		free_mm(mm);
+		return NULL;
+	}
+	memset(mm->abi_extend, 0, sizeof(*mm->abi_extend));
+
 	return mm_init(mm, current, current_user_ns());
 }
 
@@ -1300,6 +1319,7 @@ static inline void __mmput(struct mm_struct *mm)
 	exit_mmap(mm);
 	mm_put_huge_zero_page(mm);
 	set_mm_exe_file(mm, NULL);
+	put_dmabuf_info(mm->abi_extend->dmabuf_info);
 	if (!list_empty(&mm->mmlist)) {
 		spin_lock(&mmlist_lock);
 		list_del(&mm->mmlist);
@@ -1636,6 +1656,12 @@ static struct mm_struct *dup_mm(struct task_struct *tsk,
 		goto fail_nomem;
 
 	memcpy(mm, oldmm, sizeof(*mm));
+	mm->abi_extend = kmalloc(sizeof(*mm->abi_extend), GFP_KERNEL);
+	if (!mm->abi_extend) {
+		free_mm(mm);
+		goto fail_nomem;
+	}
+	mm->abi_extend->dmabuf_info = NULL;
 
 	if (!mm_init(mm, tsk, mm->user_ns))
 		goto fail_nomem;
@@ -1914,6 +1940,54 @@ init_task_pid(struct task_struct *task, enum pid_type type, struct pid *pid)
 	else
 		task->signal->pids[type] = pid;
 }
+
+#ifdef CONFIG_FIVE
+static int dup_task_integrity(unsigned long clone_flags,
+					struct task_struct *tsk)
+{
+	int ret = 0;
+
+	if (clone_flags & CLONE_VM) {
+		task_integrity_get(TASK_INTEGRITY(current));
+		task_integrity_assign(tsk, TASK_INTEGRITY(current));
+	} else {
+		task_integrity_assign(tsk, task_integrity_alloc());
+
+		if (!TASK_INTEGRITY(tsk))
+			ret = -ENOMEM;
+	}
+
+	return ret;
+}
+
+static inline void task_integrity_cleanup(struct task_struct *tsk)
+{
+	task_integrity_put(TASK_INTEGRITY(tsk));
+}
+
+static inline int task_integrity_apply(unsigned long clone_flags,
+						struct task_struct *tsk)
+{
+	int ret = 0;
+	if (!(clone_flags & CLONE_VM))
+		ret = five_fork(current, tsk);
+	return ret;
+}
+#else
+static inline int dup_task_integrity(unsigned long clone_flags,
+						struct task_struct *tsk)
+{
+	return 0;
+}
+static inline void task_integrity_cleanup(struct task_struct *tsk)
+{
+}
+static inline int task_integrity_apply(unsigned long clone_flags,
+						struct task_struct *tsk)
+{
+	return 0;
+}
+#endif
 
 static inline void rcu_copy_process(struct task_struct *p)
 {
@@ -2438,9 +2512,14 @@ static __latent_entropy struct task_struct *copy_process(
 		goto bad_fork_cleanup_perf;
 	/* copy all the process information */
 	shm_init_task(p);
-	retval = security_task_alloc(p, clone_flags);
+	retval = dup_task_integrity(clone_flags, p);
 	if (retval)
 		goto bad_fork_cleanup_audit;
+	retval = security_task_alloc(p, clone_flags);
+	if (retval) {
+		task_integrity_cleanup(p);
+		goto bad_fork_cleanup_audit;
+	}
 	retval = copy_semundo(clone_flags, p);
 	if (retval)
 		goto bad_fork_cleanup_security;
@@ -2625,6 +2704,10 @@ static __latent_entropy struct task_struct *copy_process(
 		goto bad_fork_cancel_cgroup;
 	}
 
+	retval = task_integrity_apply(clone_flags, p);
+	if (retval)
+		goto bad_fork_cancel_cgroup;
+
 	/* No more failure paths after this point. */
 
 	/*
@@ -2696,6 +2779,10 @@ static __latent_entropy struct task_struct *copy_process(
 
 	copy_oom_score_adj(clone_flags, p);
 
+#ifdef CONFIG_KDP_CRED
+	if (kdp_enable)
+		kdp_assign_pgd(p);
+#endif
 	return p;
 
 bad_fork_cancel_cgroup:
@@ -2704,7 +2791,7 @@ bad_fork_cancel_cgroup:
 	write_unlock_irq(&tasklist_lock);
 	cgroup_cancel_fork(p, args);
 bad_fork_cleanup_dmabuf:
-	put_dmabuf_info(p);
+	put_dmabuf_info(p->dmabuf_info);
 bad_fork_put_pidfd:
 	if (clone_flags & CLONE_PIDFD) {
 		fput(pidfile);
@@ -2888,6 +2975,9 @@ pid_t kernel_clone(struct kernel_clone_args *args)
 	pid = get_task_pid(p, PIDTYPE_PID);
 	nr = pid_vnr(pid);
 
+#ifdef CONFIG_SECURITY_DEFEX
+	task_defex_zero_creds(p);
+#endif
 	if (clone_flags & CLONE_PARENT_SETTID)
 		put_user(nr, args->parent_tid);
 
@@ -3489,6 +3579,17 @@ int unshare_files(void)
 	old = task->files;
 	task_lock(task);
 	task->files = copy;
+
+	/*
+	 * This is a new partial sharing relationship for task, since we have a new
+	 * files_struct (but the MM is still used). Since partial sharing is not
+	 * supported for dmabuf accounting, we need to remove the accounting info
+	 * from the task. Leave the mm->dmabuf_info so any existing accounting can
+	 * be unaccounted properly. The fixup for this new files_struct happens
+	 * externally with appropriate locking.
+	 */
+	put_dmabuf_info(task->dmabuf_info);
+	task->dmabuf_info = NULL;
 	task_unlock(task);
 	put_files_struct(old);
 	return 0;

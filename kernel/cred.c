@@ -40,7 +40,8 @@ static struct group_info init_groups = { .usage = ATOMIC_INIT(2) };
 /*
  * The initial credentials for the initial task
  */
-struct cred init_cred = {
+struct cred init_cred
+	= {
 	.usage			= ATOMIC_INIT(4),
 #ifdef CONFIG_DEBUG_CREDENTIALS
 	.subscribers		= ATOMIC_INIT(2),
@@ -146,9 +147,9 @@ void __put_cred(struct cred *cred)
 	cred->magic = CRED_MAGIC_DEAD;
 	cred->put_addr = __builtin_return_address(0);
 #endif
+
 	BUG_ON(cred == current->cred);
 	BUG_ON(cred == current->real_cred);
-
 	if (cred->non_rcu)
 		put_cred_rcu(&cred->rcu);
 	else
@@ -519,7 +520,6 @@ int commit_creds(struct cred *new)
 	    !gid_eq(new->sgid,  old->sgid) ||
 	    !gid_eq(new->fsgid, old->fsgid))
 		proc_id_connector(task, PROC_EVENT_GID);
-
 	/* release the old obj and subj refs both */
 	put_cred(old);
 	put_cred(old);
