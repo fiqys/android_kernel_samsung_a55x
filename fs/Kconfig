@@ -151,6 +151,7 @@ menu "DOS/FAT/EXFAT/NT Filesystems"
 
 source "fs/fat/Kconfig"
 source "fs/exfat/Kconfig"
+source "fs/sdfat/Kconfig"
 source "fs/ntfs/Kconfig"
 source "fs/ntfs3/Kconfig"
 
@@ -386,5 +387,17 @@ source "fs/unicode/Kconfig"
 
 config IO_WQ
 	bool
+
+config FREEZABLE_IN_LOOKUP
+	bool
+	default y
+	help
+	  For userspace filesystems like fuse, if the userspace daemon is frozen
+	  first, client requests cannot be processed, causing the client to
+	  remain in a wait state. This prevents the device from entering
+	  hibernation or system-wide suspend.
+
+	  To prevent these situations, modify VFS to check if the underlying
+	  filesystem requires a freezable wait.
 
 endmenu

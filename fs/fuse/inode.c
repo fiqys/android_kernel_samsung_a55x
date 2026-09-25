@@ -761,7 +761,7 @@ static void fuse_sync_fs_writes(struct fuse_conn *fc)
 	 */
 	atomic_dec(&bucket->count);
 
-	wait_event(bucket->waitq, atomic_read(&bucket->count) == 0);
+	fuse_wait_event(bucket->waitq, atomic_read(&bucket->count) == 0);
 
 	/* Drop temp count on descendant bucket */
 	fuse_sync_bucket_dec(new_bucket);
@@ -1089,6 +1089,12 @@ void fuse_conn_put(struct fuse_conn *fc)
 		struct fuse_iqueue *fiq = &fc->iq;
 		struct fuse_sync_bucket *bucket;
 
+#ifdef CONFIG_FUSE_WATCHDOG
+		if (fc->watchdog_thread) {
+			kthread_stop(fc->watchdog_thread);
+			put_task_struct(fc->watchdog_thread);
+		}
+#endif
 		if (IS_ENABLED(CONFIG_FUSE_DAX))
 			fuse_dax_conn_free(fc);
 		if (fiq->ops->release)
@@ -1481,6 +1487,12 @@ static void process_init_reply(struct fuse_mount *fm, struct fuse_args *args,
 		fc->conn_error = 1;
 	}
 
+#ifdef CONFIG_FUSE_WATCHDOG
+	fuse_daemon_watchdog_start(fc);
+#endif
+
+	ST_LOG("<%s> dev = %u:%u  fuse Initialized",
+			__func__, MAJOR(fc->dev), MINOR(fc->dev));
 	fuse_set_initialized(fc);
 	wake_up_all(&fc->blocked_waitq);
 }
@@ -1536,6 +1548,9 @@ void fuse_send_init(struct fuse_mount *fm)
 	ia->args.force = true;
 	ia->args.nocreds = true;
 	ia->args.end = process_init_reply;
+
+	ST_LOG("<%s> dev = %u:%u  fuse send Initrequest",
+			__func__, MAJOR(fm->fc->dev), MINOR(fm->fc->dev));
 
 	if (unlikely(fm->fc->no_daemon) || fuse_simple_background(fm, &ia->args, GFP_KERNEL) != 0)
 		process_init_reply(fm, &ia->args, -ENOTCONN);
@@ -1670,6 +1685,9 @@ static void fuse_sb_defaults(struct super_block *sb)
 	sb->s_time_gran = 1;
 	sb->s_export_op = &fuse_export_operations;
 	sb->s_iflags |= SB_I_IMA_UNVERIFIABLE_SIGNATURE;
+#ifdef CONFIG_FREEZABLE_IN_LOOKUP
+	sb->s_iflags |= SB_I_FREEZABLE_IN_LOOKUP;
+#endif
 	if (sb->s_user_ns != &init_user_ns)
 		sb->s_iflags |= SB_I_UNTRUSTED_MOUNTER;
 	sb->s_flags &= ~(SB_NOSEC | SB_I_VERSION);
