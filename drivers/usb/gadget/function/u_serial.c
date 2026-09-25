@@ -385,7 +385,7 @@ static void gs_rx_push(struct work_struct *work)
 
 		default:
 			/* presumably a transient fault */
-			pr_warn("ttyGS%d: unexpected RX status %d\n",
+			pr_debug("ttyGS%d: unexpected RX status %d\n",
 				port->port_num, req->status);
 			fallthrough;
 		case 0:
@@ -575,7 +575,10 @@ static int gs_start_io(struct gs_port *port)
 		gs_start_tx(port);
 		/* Unblock any pending writes into our circular buffer, in case
 		 * we didn't in gs_start_tx() */
-		tty_port_tty_wakeup(&port->port);
+		if (!port->port.tty)
+			goto out;
+		if(port->port.count)
+			tty_port_tty_wakeup(&port->port);
 	} else {
 out:
 		/* Free reqs only if we are still connected */

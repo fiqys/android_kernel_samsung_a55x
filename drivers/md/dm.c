@@ -30,6 +30,7 @@
 #include <linux/part_stat.h>
 #include <linux/blk-crypto.h>
 #include <linux/blk-crypto-profile.h>
+#include <linux/dm-ioctl.h>
 
 #define DM_MSG_PREFIX "core"
 
@@ -450,6 +451,14 @@ static int dm_blk_ioctl(struct block_device *bdev, fmode_t mode,
 {
 	struct mapped_device *md = bdev->bd_disk->private_data;
 	int r, srcu_idx;
+
+	if (cmd == DM_BLK_SET_RELIABLE_WRITE) {
+		set_bit(DMF_RELIABLE_WRITE, &md->flags);
+		return 0;
+	} else if (cmd == DM_BLK_CLEAR_RELIABLE_WRITE) {
+		clear_bit(DMF_RELIABLE_WRITE, &md->flags);
+		return 0;
+	}
 
 	r = dm_prepare_ioctl(md, &srcu_idx, &bdev);
 	if (r < 0)
@@ -1547,6 +1556,9 @@ static void __send_empty_flush(struct clone_info *ci)
 		atomic_add(ti->num_flush_bios, &ci->io->io_count);
 		bios = __send_duplicate_bios(ci, ti, ti->num_flush_bios, NULL);
 		atomic_sub(ti->num_flush_bios - bios, &ci->io->io_count);
+
+		if (test_bit(DMF_SEC_FLUSH_ONCE_SAME_RQ, &t->md->flags))
+			break;
 	}
 
 	/*
@@ -1798,6 +1810,11 @@ static void dm_submit_bio(struct bio *bio)
 			    dm_device_name(md));
 		bio_io_error(bio);
 		goto out;
+	}
+
+	if (test_bit(DMF_RELIABLE_WRITE, &md->flags)
+		&& (bio_op(bio) == REQ_OP_WRITE)) {
+		bio->bi_opf |= REQ_RELIABLE;
 	}
 
 	/* If suspended, queue this IO for later */

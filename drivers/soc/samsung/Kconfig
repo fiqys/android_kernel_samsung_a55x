@@ -5,6 +5,12 @@
 menuconfig SOC_SAMSUNG
 	bool "Samsung SoC driver support" if COMPILE_TEST
 
+config SOC_S5E8845
+        bool "Samsung S5E8845"
+        select ARCH_EXYNOS
+        help
+        Support Samsung SOC S5E8845.
+
 if SOC_SAMSUNG
 
 # There is no need to enable these drivers for ARMv8
@@ -103,3 +109,10 @@ config EXYNOS_REGULATOR_COUPLER
 	bool "Exynos SoC Regulator Coupler" if COMPILE_TEST
 	depends on ARCH_EXYNOS || COMPILE_TEST
 endif
+
+source "drivers/soc/samsung/acpm/Kconfig"
+source "drivers/soc/samsung/dm/Kconfig"
+source "drivers/soc/samsung/exynos/Kconfig"
+source "drivers/soc/samsung/ect_parser/Kconfig"
+source "drivers/soc/samsung/hts/Kconfig"
+source "drivers/soc/samsung/xperf/Kconfig"

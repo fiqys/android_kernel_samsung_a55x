@@ -52,6 +52,9 @@ EXPORT_SYMBOL_GPL(ANDROID_GKI_struct_dwc3);
 
 #define DWC3_DEFAULT_AUTOSUSPEND_DELAY	5000 /* ms */
 
+int host_detect;
+EXPORT_SYMBOL_GPL(host_detect);
+
 /**
  * dwc3_get_dr_mode - Validates and sets dr_mode
  * @dwc: pointer to our context structure
@@ -177,11 +180,15 @@ static void __dwc3_set_mode(struct work_struct *work)
 	int i;
 	u32 desired_dr_role;
 
+	pr_info("%s: desired->%d, current->%d\n", __func__,
+			dwc->desired_dr_role, dwc->current_dr_role);
+
 	mutex_lock(&dwc->mutex);
 	spin_lock_irqsave(&dwc->lock, flags);
 	desired_dr_role = dwc->desired_dr_role;
 	spin_unlock_irqrestore(&dwc->lock, flags);
 
+	pr_info("%s %d\n", __func__, __LINE__);
 	pm_runtime_get_sync(dwc->dev);
 
 	if (dwc->current_dr_role == DWC3_GCTL_PRTCAP_OTG)
@@ -201,7 +208,6 @@ static void __dwc3_set_mode(struct work_struct *work)
 		dwc3_host_exit(dwc);
 		break;
 	case DWC3_GCTL_PRTCAP_DEVICE:
-		dwc3_gadget_exit(dwc);
 		dwc3_event_buffers_cleanup(dwc);
 		break;
 	case DWC3_GCTL_PRTCAP_OTG:
@@ -247,6 +253,8 @@ static void __dwc3_set_mode(struct work_struct *work)
 
 	switch (desired_dr_role) {
 	case DWC3_GCTL_PRTCAP_HOST:
+		pr_info("%s: dwc3_host_init!\n", __func__);
+		host_detect = 1;
 		ret = dwc3_host_init(dwc);
 		if (ret) {
 			dev_err(dwc->dev, "failed to initialize host\n");
@@ -277,6 +285,7 @@ static void __dwc3_set_mode(struct work_struct *work)
 			otg_set_vbus(dwc->usb2_phy->otg, false);
 		phy_set_mode(dwc->usb2_generic_phy, PHY_MODE_USB_DEVICE);
 		phy_set_mode(dwc->usb3_generic_phy, PHY_MODE_USB_DEVICE);
+		dwc3_gadget_exit(dwc);
 
 		ret = dwc3_gadget_init(dwc);
 		if (ret)
@@ -299,6 +308,8 @@ out:
 void dwc3_set_mode(struct dwc3 *dwc, u32 mode)
 {
 	unsigned long flags;
+
+	pr_info("%s desired_dr_role -> %d\n", __func__, mode);
 
 	if (dwc->dr_mode != USB_DR_MODE_OTG)
 		return;
@@ -333,6 +344,7 @@ int dwc3_core_soft_reset(struct dwc3 *dwc)
 	u32		reg;
 	int		retries = 1000;
 
+	pr_info("%s\n", __func__);
 	/*
 	 * We're resetting only the device side because, if we're in host mode,
 	 * XHCI driver will reset the host block. If dwc3 was configured for
@@ -426,6 +438,8 @@ static void dwc3_ref_clk_period(struct dwc3 *dwc)
 		if (!rate)
 			return;
 		period = NSEC_PER_SEC / rate;
+		pr_info("%s period: 0x%08lx\n", __func__, period);
+		pr_info("%s rate: %lu\n", __func__, rate);
 	} else if (dwc->ref_clk_per) {
 		period = dwc->ref_clk_per;
 		rate = NSEC_PER_SEC / period;
@@ -437,6 +451,8 @@ static void dwc3_ref_clk_period(struct dwc3 *dwc)
 	reg &= ~DWC3_GUCTL_REFCLKPER_MASK;
 	reg |=  FIELD_PREP(DWC3_GUCTL_REFCLKPER_MASK, period);
 	dwc3_writel(dwc->regs, DWC3_GUCTL, reg);
+
+	pr_info("%s GUCTL: 0x%08x\n", __func__, reg);
 
 	if (DWC3_VER_IS_PRIOR(DWC3, 250A))
 		return;
@@ -476,6 +492,8 @@ static void dwc3_ref_clk_period(struct dwc3 *dwc)
 		reg |=  DWC3_GFLADJ_REFCLK_LPM_SEL;
 
 	dwc3_writel(dwc->regs, DWC3_GFLADJ, reg);
+
+	pr_info("%s GFLADJ: 0x%08x\n", __func__, reg);
 }
 
 /**
@@ -935,10 +953,16 @@ static void dwc3_clk_disable(struct dwc3 *dwc)
 	clk_disable_unprepare(dwc->bus_clk);
 }
 
+static int run_stop_fail;
 static void dwc3_core_exit(struct dwc3 *dwc)
 {
+
 	struct dwc3_vendor *vdwc = container_of(dwc, struct dwc3_vendor, dwc);
 	int i;
+	
+	pr_info("%s called\n", __func__);
+	if (!run_stop_fail)
+		dwc3_event_buffers_cleanup(dwc);
 
 	dwc3_event_buffers_cleanup(dwc);
 
@@ -1198,6 +1222,8 @@ static int dwc3_core_init(struct dwc3 *dwc)
 	u32			reg;
 	int			ret;
 	int			i, j;
+
+	pr_info("%s called\n", __func__);
 
 	hw_mode = DWC3_GHWPARAMS0_MODE(dwc->hwparams.hwparams0);
 
@@ -1565,8 +1591,11 @@ static int dwc3_core_init_mode(struct dwc3 *dwc)
 	int ret;
 	int i;
 
+	pr_info("%s called\n", __func__);
+
 	switch (dwc->dr_mode) {
 	case USB_DR_MODE_PERIPHERAL:
+		pr_info("%s dr_mode PERI\n", __func__);
 		dwc3_set_prtcap(dwc, DWC3_GCTL_PRTCAP_DEVICE, false);
 
 		if (dwc->usb2_phy)
@@ -1579,6 +1608,7 @@ static int dwc3_core_init_mode(struct dwc3 *dwc)
 			return dev_err_probe(dev, ret, "failed to initialize gadget\n");
 		break;
 	case USB_DR_MODE_HOST:
+		pr_info("%s dr_mode HOST\n", __func__);
 		dwc3_set_prtcap(dwc, DWC3_GCTL_PRTCAP_HOST, false);
 
 		if (dwc->usb2_phy)
@@ -1596,6 +1626,7 @@ static int dwc3_core_init_mode(struct dwc3 *dwc)
 			return dev_err_probe(dev, ret, "failed to initialize host\n");
 		break;
 	case USB_DR_MODE_OTG:
+		pr_info("%s dr_mode OTG\n", __func__);
 		INIT_WORK(&dwc->drd_work, __dwc3_set_mode);
 		ret = dwc3_drd_init(dwc);
 		if (ret)
@@ -2006,6 +2037,7 @@ static int dwc3_probe(struct platform_device *pdev)
 	struct resource		*res, dwc_res;
 	unsigned int		hw_mode;
 	struct dwc3		*dwc;
+	int			time = 0;
 	struct dwc3_vendor	*vdwc;
 
 	int			ret;
@@ -2160,6 +2192,7 @@ static int dwc3_probe(struct platform_device *pdev)
 	pm_runtime_use_autosuspend(dev);
 	pm_runtime_set_autosuspend_delay(dev, DWC3_DEFAULT_AUTOSUSPEND_DELAY);
 	pm_runtime_enable(dev);
+	pr_info("%s %d\n", __func__, __LINE__);
 
 	pm_runtime_forbid(dev);
 
@@ -2196,6 +2229,16 @@ static int dwc3_probe(struct platform_device *pdev)
 	ret = dwc3_core_init_mode(dwc);
 	if (ret)
 		goto err5;
+
+	while (dwc->current_dr_role != DWC3_GCTL_PRTCAP_DEVICE) {
+		mdelay(1);
+		time++;
+		if (time == 500) {
+			pr_info("%s set_mode timeout\n", __func__);
+			break;
+		}
+	}
+	pr_info("%s set_mode time = %d\n", __func__, time);
 
 	pm_runtime_put(dev);
 
@@ -2257,6 +2300,7 @@ static int dwc3_remove(struct platform_device *pdev)
 {
 	struct dwc3	*dwc = platform_get_drvdata(pdev);
 
+	pr_info("%s +++\n", __func__);
 	pm_runtime_get_sync(&pdev->dev);
 
 	dwc3_core_exit_mode(dwc);
@@ -2280,6 +2324,8 @@ static int dwc3_remove(struct platform_device *pdev)
 
 	if (dwc->usb_psy)
 		power_supply_put(dwc->usb_psy);
+
+	pr_info("%s ---\n", __func__);
 
 	return 0;
 }
@@ -2315,9 +2361,10 @@ static int dwc3_suspend_common(struct dwc3 *dwc, pm_message_t msg)
 {
 	struct dwc3_vendor *vdwc = container_of(dwc, struct dwc3_vendor, dwc);
 	u32 reg;
-	int i;
 	int ret;
+	int i;
 
+	pr_info("%s dr_role(%u)\n", __func__, dwc->current_dr_role);
 	switch (dwc->current_dr_role) {
 	case DWC3_GCTL_PRTCAP_DEVICE:
 		if (pm_runtime_suspended(dwc->dev))
@@ -2326,7 +2373,10 @@ static int dwc3_suspend_common(struct dwc3 *dwc, pm_message_t msg)
 		if (ret)
 			return ret;
 		synchronize_irq(dwc->irq_gadget);
+		if (ret < 0)
+			run_stop_fail = true;
 		dwc3_core_exit(dwc);
+		run_stop_fail = false;
 		break;
 	case DWC3_GCTL_PRTCAP_HOST:
 		if (!PMSG_IS_AUTO(msg) && !device_may_wakeup(dwc->dev)) {
@@ -2468,6 +2518,7 @@ static int dwc3_runtime_suspend(struct device *dev)
 	struct dwc3     *dwc = dev_get_drvdata(dev);
 	int		ret;
 
+	pr_info("%s+++\n", __func__);
 	if (dwc3_runtime_checks(dwc))
 		return -EBUSY;
 
@@ -2475,6 +2526,7 @@ static int dwc3_runtime_suspend(struct device *dev)
 	if (ret)
 		return ret;
 
+	pr_info("%s---\n", __func__);
 	return 0;
 }
 
@@ -2483,6 +2535,7 @@ static int dwc3_runtime_resume(struct device *dev)
 	struct dwc3     *dwc = dev_get_drvdata(dev);
 	int		ret;
 
+	pr_info("%s+++\n", __func__);
 	ret = dwc3_resume_common(dwc, PMSG_AUTO_RESUME);
 	if (ret)
 		return ret;
@@ -2502,6 +2555,7 @@ static int dwc3_runtime_resume(struct device *dev)
 	}
 
 	pm_runtime_mark_last_busy(dev);
+	pr_info("%s---\n", __func__);
 
 	return 0;
 }

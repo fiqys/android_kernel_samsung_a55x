@@ -4,7 +4,13 @@ obj-$(CONFIG_PCIE_DW_HOST) += pcie-designware-host.o
 obj-$(CONFIG_PCIE_DW_EP) += pcie-designware-ep.o
 obj-$(CONFIG_PCIE_DW_PLAT) += pcie-designware-plat.o
 obj-$(CONFIG_PCI_DRA7XX) += pci-dra7xx.o
-obj-$(CONFIG_PCI_EXYNOS) += pci-exynos.o
+obj-$(CONFIG_PCI_EXYNOS) += pcie-exynos-rc-core.o
+ifdef CONFIG_PCIE_EXYNOS_DWPHY
+pcie-exynos-rc-core-objs += pcie-exynos-rc-dwphy.o pcie-exynos-dbg-dwphy.o
+else
+pcie-exynos-rc-core-objs += pcie-exynos-rc.o pcie-exynos-dbg.o
+endif
+obj-$(CONFIG_PCI_EXYNOS_PHYCAL) += pcie-exynos-phycal.o
 obj-$(CONFIG_PCIE_FU740) += pcie-fu740.o
 obj-$(CONFIG_PCI_IMX6) += pci-imx6.o
 obj-$(CONFIG_PCIE_SPEAR13XX) += pcie-spear13xx.o

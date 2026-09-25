@@ -69,6 +69,7 @@ source "drivers/media/platform/aspeed/Kconfig"
 source "drivers/media/platform/atmel/Kconfig"
 source "drivers/media/platform/cadence/Kconfig"
 source "drivers/media/platform/chips-media/Kconfig"
+source "drivers/media/platform/exynos/Kconfig"
 source "drivers/media/platform/intel/Kconfig"
 source "drivers/media/platform/marvell/Kconfig"
 source "drivers/media/platform/mediatek/Kconfig"
@@ -86,3 +87,25 @@ source "drivers/media/platform/via/Kconfig"
 source "drivers/media/platform/xilinx/Kconfig"
 
 endif # MEDIA_PLATFORM_DRIVERS
+
+config VIDEO_EXYNOS_SCALER
+	tristate "EXYNOS Scaler Driver"
+	depends on VIDEO_DEV && HAS_DMA
+	depends on ARCH_EXYNOS
+	select V4L2_MEM2MEM_DEV
+	select MEDIA_M2M1SHOT
+	select VIDEOBUF2_DMA_SG
+	default n
+	help
+	  This is a v4l2 driver for EXYNOS Scaler (MSCL) device.
+
+config VIDEO_EXYNOS_SMFC
+	tristate "Exynos Still MFC(H/W JPEG CODEC) Driver"
+	depends on VIDEO_DEV && HAS_DMA
+	depends on ARCH_EXYNOS
+	select V4L2_MEM2MEM_DEV
+	select VIDEOBUF2_DMA_SG
+	default n
+	help
+	  Still MFC(Multi Format Codec) V4L2 Driver for Exynos SoCs.
+	  The driver supports for mem2mem V4L2 device.
