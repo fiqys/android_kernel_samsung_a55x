@@ -744,7 +744,8 @@ int is_vendor_ois_set_dev_ctrl(struct v4l2_subdev *subdev, int forceMode)
 				val = is_mcu_get_reg_u8(mcu->regs[OM_REG_CORE], OIS_CMD_DEVCTRL);
 				if (--retry < 0) {
 					err_mcu("Read status failed!!!!, data = 0x%04x", val);
-					break;
+					info_mcu("%s : X\n", __func__);
+					return -ETIMEDOUT;
 				}
 			} while (val != 0x00);
 
