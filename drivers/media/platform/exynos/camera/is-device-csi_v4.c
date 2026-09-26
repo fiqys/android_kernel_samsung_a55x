@@ -3451,10 +3451,16 @@ static int csi_stream_off(struct v4l2_subdev *subdev,
 		}
 	}
 
+	if (flush_work(&csi->wq_link_dump))
+		mcinfo("link_dump flush_work executed!\n", csi);
+
 	if (test_and_clear_bit(CSIS_LINE_IRQ_ENABLE, &csi->state))
 		tasklet_kill(&csi->tasklet_csis_line);
 
 	tasklet_kill(&csi->tasklet_csis_end);
+
+	cancel_work_sync(&csi->wq_link_dump);
+
 	csi_dma_deinit(csi);
 
 	if (csi->bns)

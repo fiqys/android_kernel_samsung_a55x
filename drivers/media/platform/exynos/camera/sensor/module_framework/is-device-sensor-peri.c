@@ -724,8 +724,11 @@ void is_sensor_ois_set_init_work(struct work_struct *data)
 #if defined(CONFIG_CAMERA_USE_INTERNAL_MCU)
 	is_vendor_mcu_power_on_wait();
 	ret = CALL_OISOPS(sensor_peri->mcu->ois, ois_set_dev_ctrl, sensor_peri->subdev_mcu, 0);
-	if (ret < 0)
+	if (ret < 0) {
 		err("v4l2_subdev_call(ois_set_dev_ctrl) is fail(%d)", ret);
+		info("[%s] X (dev_ctrl not ready)\n", __func__);
+		return;
+	}
 
 #if defined(CAMERA_2ND_OIS)
 	/* For dual camera project to reduce power consumption of ois */
