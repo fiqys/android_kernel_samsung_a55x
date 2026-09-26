@@ -38,7 +38,7 @@
 #endif
 #ifdef CONFIG_SOC_EXYNOS9630
 #include <linux/mfd/samsung/s2mpu11-regulator.h>
-#include "../../../../drivers/soc/samsung/cal-if/acpm_dvfs.h"
+#include "../../../../drivers/soc/samsung/exynos/cal-if/acpm_dvfs.h"
 #endif
 
 #ifdef CONFIG_SCSC_SMAPPER

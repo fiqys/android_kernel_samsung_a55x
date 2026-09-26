@@ -27,7 +27,7 @@
 #include <trace/hooks/cgroup.h>
 
 #include "sched.h"
-#include "../../drivers/soc/samsung/mpam/mpam_arch.h"
+#include "../../drivers/soc/samsung/exynos/mpam/mpam_arch.h"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Yeonghwan Son <yhwan.son@samsung.com>");

@@ -2,7 +2,7 @@
 #define __CAL_IF_H__
 
 #ifdef CONFIG_PWRCAL
-#include "../../../drivers/soc/samsung/pwrcal/pwrcal.h"
+#include "../../../drivers/soc/samsung/exynos/pwrcal/pwrcal.h"
 struct exynos_pm_domain;
 static inline int cal_qch_init(unsigned int vclkid, unsigned int use_qch)
 {
@@ -14,7 +14,7 @@ static inline int cal_if_init(void)
 	return 0;
 }
 #else
-#include "../../../drivers/soc/samsung/cal-if/pmucal/include/pmucal_system.h"
+#include "../../../drivers/soc/samsung/exynos/cal-if/pmucal/include/pmucal_system.h"
 
 #define BLKPWR_MAGIC	0xB1380000
 
