@@ -16,5 +16,5 @@ obj-$(CONFIG_REGULATOR_S2MPB06) += s2mpb06-regulator.o
 obj-$(CONFIG_REGULATOR_S2DPS01) += s2dps01.o
 obj-$(CONFIG_REGULATOR_S2MPS27)	+= s2mps27_regulator.o
 obj-$(CONFIG_REGULATOR_S2MPS28)	+= s2mps28_regulator.o
-obj-$(CONFIG_REGULATOR_S2MPU15_8845) += s2mpu15_regulator_8845.o
-obj-$(CONFIG_REGULATOR_S2MPU16_8845) += s2mpu16_regulator_8845.o
+obj-$(CONFIG_REGULATOR_S2MPU15_8845) += s2mpu15_regulator.o
+obj-$(CONFIG_REGULATOR_S2MPU16_8845) += s2mpu16_regulator.o
