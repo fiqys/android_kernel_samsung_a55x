@@ -2,7 +2,7 @@
 # Makefile for Profiler
 #
 
-INCLUDE_PATH = $(srctree)/drivers/soc/samsung/profiler/include
+INCLUDE_PATH = $(srctree)/drivers/soc/samsung/exynos/profiler/include
 ccflags-y += -I$(INCLUDE_PATH)
 obj-$(CONFIG_EXYNOS_MAIN_PROFILER) += include/exynos-profiler-fn.o
 

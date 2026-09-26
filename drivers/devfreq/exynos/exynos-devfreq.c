@@ -28,7 +28,7 @@
 #include <soc/samsung/cal-if.h>
 #include <soc/samsung/bts.h>
 #include <linux/of_platform.h>
-#include "../../soc/samsung/cal-if/acpm_dvfs.h"
+#include "../../soc/samsung/exynos/cal-if/acpm_dvfs.h"
 #include <soc/samsung/exynos-pd.h>
 #include <linux/cpumask.h>
 #include <soc/samsung/exynos-devfreq.h>
@@ -37,8 +37,8 @@
 #include <soc/samsung/ect_parser.h>
 #include <soc/samsung/exynos-dm.h>
 #if IS_ENABLED(CONFIG_EXYNOS_ACPM)
-#include "../../soc/samsung/acpm/acpm.h"
-#include "../../soc/samsung/acpm/acpm_ipc.h"
+#include "../../soc/samsung/exynos/acpm/acpm.h"
+#include "../../soc/samsung/exynos/acpm/acpm_ipc.h"
 #endif
 #if IS_ENABLED(CONFIG_EXYNOS_ESCAV2)
 #include <soc/samsung/esca.h>

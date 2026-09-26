@@ -18,10 +18,10 @@
 #include <soc/samsung/cal-if.h>
 #include <dt-bindings/clock/s5e8845.h>
 
-#include "../../soc/samsung/cal-if/s5e8845/cmucal/cmucal-vclk.h"
-#include "../../soc/samsung/cal-if/s5e8845/cmucal/cmucal-node.h"
-#include "../../soc/samsung/cal-if/s5e8845/cmucal/cmucal-qch.h"
-#include "../../soc/samsung/cal-if/s5e8845/cmucal/clkout_s5e8845.h"
+#include "../../soc/samsung/exynos/cal-if/s5e8845/cmucal/cmucal-vclk.h"
+#include "../../soc/samsung/exynos/cal-if/s5e8845/cmucal/cmucal-node.h"
+#include "../../soc/samsung/exynos/cal-if/s5e8845/cmucal/cmucal-qch.h"
+#include "../../soc/samsung/exynos/cal-if/s5e8845/cmucal/clkout_s5e8845.h"
 #include "composite.h"
 
 static struct samsung_clk_provider *s5e8845_clk_provider;
