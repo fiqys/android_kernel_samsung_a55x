@@ -15,7 +15,7 @@
 
 /* Profiler */
 #if IS_ENABLED(CONFIG_EXYNOS_MAIN_PROFILER)
-#include "../../../drivers/soc/samsung/profiler/include/exynos-profiler-fn.h"
+#include "../../../drivers/soc/samsung/exynos/profiler/include/exynos-profiler-fn.h"
 
 extern void exynos_profiler_register_frame_cnt(void (*fn)(u64 *cnt, ktime_t *time));
 extern void exynos_profiler_register_fence_cnt(void (*fn)(u64 *cnt, ktime_t *time));
