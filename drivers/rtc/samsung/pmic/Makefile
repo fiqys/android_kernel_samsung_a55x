@@ -5,4 +5,4 @@
 
 obj-$(CONFIG_RTC_DRV_S2MPS25)   += rtc-s2mps25.o
 obj-$(CONFIG_RTC_DRV_S2MPS27)   += s2mps27_rtc.o
-obj-$(CONFIG_RTC_DRV_S2MPU15_8845)   += s2mpu15_rtc_8845.o
+obj-$(CONFIG_RTC_DRV_S2MPU15_8845)   += s2mpu15_rtc.o
