@@ -9,4 +9,4 @@ obj-$(CONFIG_S2MPS25_ADC_9935) += s2mps25_adc_9935.o
 obj-$(CONFIG_S2MPU15_ADC_8535) += s2mpu15_adc_8535.o
 obj-$(CONFIG_S2MPU15_ADC_8835) += s2mpu15_adc_8835.o
 obj-$(CONFIG_S2MPS27_ADC) += s2mps27_adc.o
-obj-$(CONFIG_S2MPU15_ADC_8845) += s2mpu15_adc_8845.o
+obj-$(CONFIG_S2MPU15_ADC_8845) += s2mpu15_adc.o
