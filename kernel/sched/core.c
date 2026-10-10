@@ -3984,6 +3984,11 @@ bool cpus_share_cache(int this_cpu, int that_cpu)
 
 static inline bool ttwu_queue_cond(struct task_struct *p, int cpu)
 {
+#ifdef CONFIG_SMP
+	if (p->sched_class == &stop_sched_class)
+		return false;
+#endif
+
 	/*
 	 * Do not complicate things with the async wake_list while the CPU is
 	 * in hotplug state.
@@ -4862,7 +4867,7 @@ void sched_post_fork(struct task_struct *p)
 	uclamp_post_fork(p);
 }
 
-unsigned long to_ratio(u64 period, u64 runtime)
+u64 to_ratio(u64 period, u64 runtime)
 {
 	if (runtime == RUNTIME_INF)
 		return BW_UNIT;
@@ -6638,12 +6643,18 @@ static void __sched notrace __schedule(unsigned int sched_mode)
 	struct rq_flags rf;
 	struct rq *rq;
 	int cpu;
+	bool skip_schedule = false;
 
 	cpu = smp_processor_id();
 	rq = cpu_rq(cpu);
 	prev = rq->curr;
 
 	schedule_debug(prev, !!sched_mode);
+
+	trace_android_vh_lock_delay_schedule(prev, sched_mode, &skip_schedule);
+
+	if (skip_schedule)
+		return;
 
 	if (sched_feat(HRTICK) || sched_feat(HRTICK_DL))
 		hrtick_clear(rq);
@@ -6716,6 +6727,7 @@ static void __sched notrace __schedule(unsigned int sched_mode)
 	next = pick_next_task(rq, prev, &rf);
 	clear_tsk_need_resched(prev);
 	clear_preempt_need_resched();
+	trace_android_vh_clear_curr_lazy(prev);
 #ifdef CONFIG_SCHED_DEBUG
 	rq->last_seen_need_resched_ns = 0;
 #endif
@@ -9014,11 +9026,18 @@ long __sched io_schedule_timeout(long timeout)
 {
 	int token;
 	long ret;
+	u64 start_ts = 0;
+
+	if (trace_android_vh_io_schedule_profile_enabled())
+		start_ts = ktime_get_ns();
 
 	token = io_schedule_prepare();
 	ret = schedule_timeout(timeout);
 	io_schedule_finish(token);
 
+	if (unlikely(start_ts))
+		trace_android_vh_io_schedule_profile(_RET_IP_,
+				ktime_get_ns() - start_ts);
 	return ret;
 }
 EXPORT_SYMBOL(io_schedule_timeout);
@@ -9026,10 +9045,18 @@ EXPORT_SYMBOL(io_schedule_timeout);
 void __sched io_schedule(void)
 {
 	int token;
+	u64 start_ts = 0;
+
+	if (trace_android_vh_io_schedule_profile_enabled())
+		start_ts = ktime_get_ns();
 
 	token = io_schedule_prepare();
 	schedule();
 	io_schedule_finish(token);
+
+	if (unlikely(start_ts))
+		trace_android_vh_io_schedule_profile(_RET_IP_,
+				ktime_get_ns() - start_ts);
 }
 EXPORT_SYMBOL(io_schedule);
 

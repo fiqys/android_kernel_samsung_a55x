@@ -115,15 +115,8 @@
 
 #undef CREATE_TRACE_POINTS
 #include <trace/hooks/sched.h>
-
-#ifdef CONFIG_KDP_CRED
-#include <linux/kdp.h>
-#endif
-
-#ifdef CONFIG_SECURITY_DEFEX
-#include <linux/defex.h>
-#endif
-
+#include <trace/hooks/mm.h>
+#include <trace/hooks/dtask.h>
 /*
  * Minimum number of threads to boot the kernel
  */
@@ -898,6 +891,8 @@ void __mmdrop(struct mm_struct *mm)
 	put_user_ns(mm->user_ns);
 	mm_pasid_drop(mm);
 	kfree(mm->abi_extend);
+	trace_android_vh_mmap_lock_free(&mm->mmap_lock);
+	trace_android_vh_mm_free(mm);
 	free_mm(mm);
 }
 EXPORT_SYMBOL_GPL(__mmdrop);
@@ -1115,6 +1110,7 @@ static struct task_struct *dup_task_struct(struct task_struct *orig, int node)
 	setup_thread_stack(tsk, orig);
 	clear_user_return_notifier(tsk);
 	clear_tsk_need_resched(tsk);
+	trace_android_vh_clear_curr_lazy(tsk);
 	set_task_stack_end_magic(tsk);
 	clear_syscall_work_syscall_user_dispatch(tsk);
 
@@ -1168,7 +1164,7 @@ static struct task_struct *dup_task_struct(struct task_struct *orig, int node)
 
 	android_init_vendor_data(tsk, 1);
 	android_init_oem_data(tsk, 1);
-
+	android_init_dynamic_vendor_data(tsk);
 	trace_android_vh_dup_task_struct(tsk, orig);
 	return tsk;
 
@@ -1227,6 +1223,12 @@ static void mm_init_uprobes_state(struct mm_struct *mm)
 #endif
 }
 
+static void mmap_init_lock(struct mm_struct *mm)
+{
+	init_rwsem(&mm->mmap_lock);
+	trace_android_vh_mmap_lock_init(&mm->mmap_lock);
+}
+
 static struct mm_struct *mm_init(struct mm_struct *mm, struct task_struct *p,
 	struct user_namespace *user_ns)
 {
@@ -1276,6 +1278,7 @@ static struct mm_struct *mm_init(struct mm_struct *mm, struct task_struct *p,
 
 	mm->user_ns = get_user_ns(user_ns);
 	lru_gen_init_mm(mm);
+	trace_android_vh_mm_init(mm);
 	return mm;
 
 fail_nocontext:
@@ -2777,6 +2780,7 @@ static __latent_entropy struct task_struct *copy_process(
 	trace_task_newtask(p, clone_flags);
 	uprobe_copy_process(p, clone_flags);
 
+	trace_android_vh_lock_task_fork(p);
 	copy_oom_score_adj(clone_flags, p);
 
 #ifdef CONFIG_KDP_CRED
@@ -3400,7 +3404,7 @@ static int unshare_fs(unsigned long unshare_flags, struct fs_struct **new_fsp)
 		return 0;
 
 	/* don't need lock here; in the worst case we'll do useless copy */
-	if (fs->users == 1)
+	if (!(unshare_flags & CLONE_NEWNS) && fs->users == 1)
 		return 0;
 
 	*new_fsp = copy_fs_struct(fs);
@@ -3442,6 +3446,7 @@ int ksys_unshare(unsigned long unshare_flags)
 	struct files_struct *new_fd = NULL;
 	struct cred *new_cred = NULL;
 	struct nsproxy *new_nsproxy = NULL;
+	struct task_dma_buf_info *dmabuf_info = NULL;
 	int do_sysvsem = 0;
 	int err;
 
@@ -3490,11 +3495,10 @@ int ksys_unshare(unsigned long unshare_flags)
 					 new_cred, new_fs);
 	if (err)
 		goto bad_unshare_cleanup_cred;
-
 	if (new_cred) {
 		err = set_cred_ucounts(new_cred);
 		if (err)
-			goto bad_unshare_cleanup_cred;
+			goto bad_unshare_cleanup_nsproxy;
 	}
 
 	if (new_fs || new_fd || do_sysvsem || new_cred || new_nsproxy) {
@@ -3510,8 +3514,10 @@ int ksys_unshare(unsigned long unshare_flags)
 			shm_init_task(current);
 		}
 
-		if (new_nsproxy)
+		if (new_nsproxy) {
 			switch_task_namespaces(current, new_nsproxy);
+			new_nsproxy = NULL;
+		}
 
 		task_lock(current);
 
@@ -3526,10 +3532,22 @@ int ksys_unshare(unsigned long unshare_flags)
 			spin_unlock(&fs->lock);
 		}
 
-		if (new_fd)
+		if (new_fd) {
 			swap(current->files, new_fd);
 
+			/*
+			 * This is a new partial sharing relationship for the current task, since we
+			 * have a new files_struct (and the MM might still be shared). Since partial
+			 * sharing is not supported for dmabuf accounting, we need to remove the
+			 * accounting info from the task. Leave the mm->dmabuf_info so any existing
+			 * accounting can be unaccounted properly.
+			 */
+			dmabuf_info = current->dmabuf_info;
+			current->dmabuf_info = NULL;
+		}
+
 		task_unlock(current);
+		put_dmabuf_info(dmabuf_info);
 
 		if (new_cred) {
 			/* Install the new user namespace */
@@ -3540,13 +3558,15 @@ int ksys_unshare(unsigned long unshare_flags)
 
 	perf_event_namespaces(current);
 
+bad_unshare_cleanup_nsproxy:
+	if (new_nsproxy)
+		put_nsproxy(new_nsproxy);
 bad_unshare_cleanup_cred:
 	if (new_cred)
 		put_cred(new_cred);
 bad_unshare_cleanup_fd:
 	if (new_fd)
 		put_files_struct(new_fd);
-
 bad_unshare_cleanup_fs:
 	if (new_fs)
 		free_fs_struct(new_fs);
@@ -3570,6 +3590,7 @@ int unshare_files(void)
 {
 	struct task_struct *task = current;
 	struct files_struct *old, *copy = NULL;
+	struct task_dma_buf_info *dmabuf_info;
 	int error;
 
 	error = unshare_fd(CLONE_FILES, &copy);
@@ -3580,19 +3601,20 @@ int unshare_files(void)
 	task_lock(task);
 	task->files = copy;
 
-	/*
-	 * This is a new partial sharing relationship for task, since we have a new
-	 * files_struct (but the MM is still used). Since partial sharing is not
-	 * supported for dmabuf accounting, we need to remove the accounting info
-	 * from the task. Leave the mm->dmabuf_info so any existing accounting can
-	 * be unaccounted properly. The fixup for this new files_struct happens
-	 * externally with appropriate locking.
-	 */
-	put_dmabuf_info(task->dmabuf_info);
-	task->dmabuf_info = NULL;
-	task_unlock(task);
-	put_files_struct(old);
-	return 0;
+        /*
+         * This is a new partial sharing relationship for the current task, since we have a new
+         * files_struct (and the MM might still be shared). Since partial sharing is not
+         * supported for dmabuf accounting, we need to remove the accounting info from the task.
+         * Leave the mm->dmabuf_info so any existing accounting can be unaccounted properly. For
+         * execs where we also have a new MM, the fixup for this new files_struct happens externally
+         * with appropriate locking in dma_buf_begin_new_exec.
+         */
+        dmabuf_info = task->dmabuf_info;
+        task->dmabuf_info = NULL;
+        task_unlock(task);
+        put_dmabuf_info(dmabuf_info);
+        put_files_struct(old);
+        return 0;
 }
 
 int sysctl_max_threads(struct ctl_table *table, int write,

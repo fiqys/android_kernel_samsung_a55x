@@ -882,13 +882,13 @@ static void tasklet_action_common(struct softirq_action *a,
 				if (tasklet_clear_sched(t)) {
 					secdbg_prep_preempt_count(PCHECK_TASKLET_ACTION, pcount);
 					if (t->use_callback) {
-						trace_tasklet_entry(t->callback);
+						trace_tasklet_entry(t, t->callback);
 						t->callback(t);
-						trace_tasklet_exit(t->callback);
+						trace_tasklet_exit(t, t->callback);
 					} else {
-						trace_tasklet_entry(t->func);
+						trace_tasklet_entry(t, t->func);
 						t->func(t->data);
-						trace_tasklet_exit(t->func);
+						trace_tasklet_exit(t, t->func);
 					}
 					secdbg_check_preempt_count(PCHECK_TASKLET_ACTION, pcount,
 							t->use_callback ? (void *)t->callback :

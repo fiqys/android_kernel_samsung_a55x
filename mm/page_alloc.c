@@ -205,6 +205,33 @@ static DEFINE_MUTEX(pcp_batch_high_lock);
 #define pcp_spin_unlock(ptr)						\
 	pcpu_spin_unlock(lock, ptr)
 
+/*
+ * With the UP spinlock implementation, when we spin_lock(&pcp->lock) (for i.e.
+ * a potentially remote cpu drain) and get interrupted by an operation that
+ * attempts pcp_spin_trylock(), we can't rely on the trylock failure due to UP
+ * spinlock assumptions making the trylock a no-op. So we have to turn that
+ * spin_lock() to a spin_lock_irqsave(). This works because on UP there are no
+ * remote cpu's so we can only be locking the only existing local one.
+ */
+#if defined(CONFIG_SMP) || defined(CONFIG_PREEMPT_RT)
+static inline void __flags_noop(unsigned long *flags) { }
+#define pcp_spin_lock_maybe_irqsave(ptr, flags)		\
+({							\
+	 __flags_noop(&(flags));			\
+	 spin_lock(&(ptr)->lock);			\
+})
+#define pcp_spin_unlock_maybe_irqrestore(ptr, flags)	\
+({							\
+	 spin_unlock(&(ptr)->lock);			\
+	 __flags_noop(&(flags));			\
+})
+#else
+#define pcp_spin_lock_maybe_irqsave(ptr, flags)		\
+		spin_lock_irqsave(&(ptr)->lock, flags)
+#define pcp_spin_unlock_maybe_irqrestore(ptr, flags)	\
+		spin_unlock_irqrestore(&(ptr)->lock, flags)
+#endif
+
 #ifdef CONFIG_USE_PERCPU_NUMA_NODE_ID
 DEFINE_PER_CPU(int, numa_node);
 EXPORT_PER_CPU_SYMBOL(numa_node);
@@ -1519,6 +1546,7 @@ static __always_inline bool free_pages_prepare(struct page *page,
 				continue;
 			}
 			(page + i)->flags &= ~PAGE_FLAGS_CHECK_AT_PREP;
+			trace_android_vh_mm_free_page(page + i);
 		}
 	}
 	if (PageMappingFlags(page))
@@ -1532,6 +1560,8 @@ static __always_inline bool free_pages_prepare(struct page *page,
 
 	page_cpupid_reset_last(page);
 	page->flags &= ~PAGE_FLAGS_CHECK_AT_PREP;
+	trace_android_vh_mm_free_page(page);
+	page->private = 0;
 	reset_page_owner(page, order);
 	free_page_pinner(page, order);
 	page_table_check_free(page, order);
@@ -2628,7 +2658,7 @@ inline void post_alloc_hook(struct page *page, unsigned int order,
 	page_table_check_alloc(page, order);
 }
 
-static void prep_new_page(struct page *page, unsigned int order, gfp_t gfp_flags,
+void prep_new_page(struct page *page, unsigned int order, gfp_t gfp_flags,
 							unsigned int alloc_flags)
 {
 	post_alloc_hook(page, order, gfp_flags);
@@ -2648,6 +2678,7 @@ static void prep_new_page(struct page *page, unsigned int order, gfp_t gfp_flags
 		clear_page_pfmemalloc(page);
 	trace_android_vh_test_clear_look_around_ref(page);
 }
+EXPORT_SYMBOL_GPL(prep_new_page);
 
 /*
  * Go through the free lists for the given migratetype and remove
@@ -3363,14 +3394,15 @@ static struct list_head *get_populated_pcp_list(struct zone *zone,
  */
 void drain_zone_pages(struct zone *zone, struct per_cpu_pages *pcp)
 {
+	unsigned long UP_flags;
 	int to_drain, batch;
 
 	batch = READ_ONCE(pcp->batch);
 	to_drain = min(pcp->count, batch);
 	if (to_drain > 0) {
-		spin_lock(&pcp->lock);
+		pcp_spin_lock_maybe_irqsave(pcp, UP_flags);
 		free_pcppages_bulk(zone, to_drain, pcp, 0);
-		spin_unlock(&pcp->lock);
+		pcp_spin_unlock_maybe_irqrestore(pcp, UP_flags);
 	}
 }
 #endif
@@ -3381,10 +3413,11 @@ void drain_zone_pages(struct zone *zone, struct per_cpu_pages *pcp)
 static void drain_pages_zone(unsigned int cpu, struct zone *zone)
 {
 	struct per_cpu_pages *pcp = per_cpu_ptr(zone->per_cpu_pageset, cpu);
+	unsigned long UP_flags;
 	int count;
 
 	do {
-		spin_lock(&pcp->lock);
+		pcp_spin_lock_maybe_irqsave(pcp, UP_flags);
 		count = pcp->count;
 		if (count) {
 			int to_drain = min(count,
@@ -3393,7 +3426,7 @@ static void drain_pages_zone(unsigned int cpu, struct zone *zone)
 			free_pcppages_bulk(zone, to_drain, pcp, 0);
 			count -= to_drain;
 		}
-		spin_unlock(&pcp->lock);
+		pcp_spin_unlock_maybe_irqrestore(pcp, UP_flags);
 	} while (count);
 }
 
@@ -5030,8 +5063,10 @@ __alloc_pages_direct_reclaim(gfp_t gfp_mask, unsigned int order,
 	unsigned long pflags;
 	bool drained = false;
 	bool skip_pcp_drain = false;
+	u64 stime = 0;
 
 	trace_android_vh_mm_alloc_pages_direct_reclaim_enter(order);
+	trace_android_vh_mm_direct_reclaim_start(&stime);
 	psi_memstall_enter(&pflags);
 	*did_some_progress = __perform_reclaim(gfp_mask, order, ac);
 	if (unlikely(!(*did_some_progress)))
@@ -5058,6 +5093,7 @@ retry:
 out:
 	psi_memstall_leave(&pflags);
 	trace_android_vh_mm_alloc_pages_direct_reclaim_exit(*did_some_progress, retry_times);
+	trace_android_vh_mm_direct_reclaim_end(order, stime);
 	return page;
 }
 
@@ -5306,11 +5342,12 @@ __alloc_pages_slowpath(gfp_t gfp_mask, unsigned int order,
 	unsigned long alloc_start = jiffies;
 	bool should_alloc_retry = false;
 	unsigned long pages_reclaimed = 0;
-	int retry_loop_count = 0;
-	unsigned long jiffies_s = jiffies;
-	u64 utime, stime_s, stime_e, stime_d;
+        int retry_loop_count = 0;
+        unsigned long jiffies_s = jiffies;
+        u64 utime, stime_s, stime_e, stime_d;
+        u64 stime = 0;
 
-	task_cputime(current, &utime, &stime_s);
+        task_cputime(current, &utime, &stime_s);
 
 	/*
 	 * We also sanity check to catch abuse of atomic reserves being used by
@@ -5319,6 +5356,8 @@ __alloc_pages_slowpath(gfp_t gfp_mask, unsigned int order,
 	if (WARN_ON_ONCE((gfp_mask & (__GFP_ATOMIC|__GFP_DIRECT_RECLAIM)) ==
 				(__GFP_ATOMIC|__GFP_DIRECT_RECLAIM)))
 		gfp_mask &= ~__GFP_ATOMIC;
+
+	trace_android_vh_alloc_pages_slowpath_start(&stime);
 
 restart:
 	compaction_retries = 0;
@@ -5414,6 +5453,20 @@ restart:
 			 */
 			if (compact_result == COMPACT_SKIPPED ||
 			    compact_result == COMPACT_DEFERRED)
+				goto nopage;
+
+			/*
+			 * THP page faults may attempt local node only first,
+			 * but are then allowed to only compact, not reclaim,
+			 * see alloc_pages_mpol().
+			 *
+			 * Compaction can fail for other reasons than those
+			 * checked above and we don't want such THP allocations
+			 * to put reclaim pressure on a single node in a
+			 * situation where other nodes might have plenty of
+			 * available memory.
+			 */
+			if (gfp_mask & __GFP_THISNODE)
 				goto nopage;
 
 			/*
@@ -5630,6 +5683,8 @@ got_pg:
 			a_file << (PAGE_SHIFT-10), in_file << (PAGE_SHIFT-10));
 	}
 	trace_android_vh_alloc_pages_slowpath(gfp_mask, order, alloc_start);
+	trace_android_vh_alloc_pages_slowpath_end(&gfp_mask, order, alloc_start,
+			stime, did_some_progress, pages_reclaimed, retry_loop_count);
 	return page;
 }
 
@@ -5854,6 +5909,7 @@ struct page *__alloc_pages(gfp_t gfp, unsigned int order, int preferred_nid,
 	unsigned int alloc_flags = ALLOC_WMARK_LOW;
 	gfp_t alloc_gfp; /* The gfp_t that was actually used for allocation */
 	struct alloc_context ac = { };
+	u64 stime = 0;
 
 	/*
 	 * There are several places where we assume that the order value is sane
@@ -5861,6 +5917,8 @@ struct page *__alloc_pages(gfp_t gfp, unsigned int order, int preferred_nid,
 	 */
 	if (WARN_ON_ONCE_GFP(order >= MAX_ORDER, gfp))
 		return NULL;
+
+	trace_android_vh_alloc_pages_start(&stime);
 
 	gfp &= gfp_allowed_mask;
 	/*
@@ -5910,6 +5968,7 @@ out:
 
 	trace_mm_page_alloc(page, order, alloc_gfp, ac.migratetype);
 	kmsan_alloc_page(page, order, alloc_gfp);
+	trace_android_vh_alloc_pages_end(order, alloc_gfp, stime);
 
 	return page;
 }
@@ -9362,11 +9421,19 @@ int percpu_pagelist_high_fraction_sysctl_handler(struct ctl_table *table,
 	int old_percpu_pagelist_high_fraction;
 	int ret;
 
+	/*
+	 * Avoid using pcp_batch_high_lock for reads as the value is read
+	 * atomically and a race with offlining is harmless.
+	 */
+
+	if (!write)
+		return proc_dointvec_minmax(table, write, buffer, length, ppos);
+
 	mutex_lock(&pcp_batch_high_lock);
 	old_percpu_pagelist_high_fraction = percpu_pagelist_high_fraction;
 
 	ret = proc_dointvec_minmax(table, write, buffer, length, ppos);
-	if (!write || ret < 0)
+	if (ret < 0)
 		goto out;
 
 	/* Sanity checking to avoid pcp imbalance */
@@ -9520,7 +9587,7 @@ void *__init alloc_large_system_hash(const char *tablename,
 		panic("Failed to allocate %s hash table\n", tablename);
 
 	pr_info("%s hash table entries: %ld (order: %d, %lu bytes, %s)\n",
-		tablename, 1UL << log2qty, ilog2(size) - PAGE_SHIFT, size,
+		tablename, 1UL << log2qty, get_order(size), size,
 		virt ? (huge ? "vmalloc hugepage" : "vmalloc") : "linear");
 
 	if (_hash_shift)

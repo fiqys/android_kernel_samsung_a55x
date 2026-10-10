@@ -1349,6 +1349,7 @@ static int __remove_mapping(struct address_space *mapping, struct folio *folio,
 	BUG_ON(!folio_test_locked(folio));
 	BUG_ON(mapping != folio_mapping(folio));
 
+	trace_android_vh_remove_mapping(mapping, folio, reclaimed);
 	if (!folio_test_swapcache(folio))
 		spin_lock(&mapping->host->i_lock);
 	xa_lock_irq(&mapping->i_pages);
@@ -1389,11 +1390,10 @@ static int __remove_mapping(struct address_space *mapping, struct folio *folio,
 	if (folio_test_swapcache(folio)) {
 		swp_entry_t swap = folio_swap_entry(folio);
 
-		/* get a shadow entry before mem_cgroup_swapout() clears folio_memcg() */
 		if (reclaimed && !mapping_exiting(mapping))
 			shadow = workingset_eviction(folio, target_memcg);
-		mem_cgroup_swapout(folio, swap);
 		__delete_from_swap_cache(folio, swap, shadow);
+		mem_cgroup_swapout(folio, swap);
 		xa_unlock_irq(&mapping->i_pages);
 		put_swap_folio(folio, swap);
 	} else {
@@ -1435,6 +1435,7 @@ cannot_free:
 	xa_unlock_irq(&mapping->i_pages);
 	if (!folio_test_swapcache(folio))
 		spin_unlock(&mapping->host->i_lock);
+	trace_android_vh_remove_mapping_failed(mapping, folio, reclaimed);
 	return 0;
 }
 
@@ -1708,6 +1709,7 @@ retry:
 		unsigned int nr_pages;
 		bool activate = false;
 		bool keep = false;
+		bool bypass = false;
 
 		cond_resched();
 
@@ -2014,8 +2016,10 @@ retry:
 			case PAGE_SUCCESS:
 				stat->nr_pageout += nr_pages;
 
-				if (folio_test_writeback(folio))
+				if (folio_test_writeback(folio)) {
+					trace_android_vh_handle_folio_writeback(folio, &bypass);
 					goto keep;
+				}
 				if (folio_test_dirty(folio))
 					goto keep;
 
@@ -2133,6 +2137,10 @@ activate_locked:
 			folio_free_swap(folio);
 		VM_BUG_ON_FOLIO(folio_test_active(folio), folio);
 		if (!folio_test_mlocked(folio)) {
+			bool skip = false;
+			trace_android_vh_folio_skip_activate(folio, &skip);
+			if (skip)
+				goto keep_locked;
 			int type = folio_is_file_lru(folio);
 			folio_set_active(folio);
 			stat->nr_activate[type] += nr_pages;
@@ -2141,7 +2149,8 @@ activate_locked:
 keep_locked:
 		folio_unlock(folio);
 keep:
-		list_add(&folio->lru, &ret_folios);
+		if (!bypass)
+			list_add(&folio->lru, &ret_folios);
 		VM_BUG_ON_FOLIO(folio_test_lru(folio) ||
 				folio_test_unevictable(folio), folio);
 	}
@@ -2413,6 +2422,7 @@ int folio_isolate_lru(struct folio *folio)
 
 	return ret;
 }
+EXPORT_SYMBOL_GPL(folio_isolate_lru);
 
 /*
  * A direct reclaimer may isolate SWAP_CLUSTER_MAX pages from the LRU list and
@@ -2745,10 +2755,14 @@ static void shrink_active_list(unsigned long nr_to_scan,
 			 * so we ignore them here.
 			 */
 			if ((vm_flags & VM_EXEC) && folio_is_file_lru(folio)) {
+				bool bypass = false;
 				trace_android_vh_folio_trylock_clear(folio);
 				nr_rotated += folio_nr_pages(folio);
-				list_add(&folio->lru, &l_active);
-				continue;
+				trace_android_vh_folio_trylock_clear_bypass(folio, &bypass);
+				if (!bypass) {
+					list_add(&folio->lru, &l_active);
+					continue;
+				}
 			}
 		}
 		trace_android_vh_folio_trylock_clear(folio);
@@ -4817,6 +4831,7 @@ void lru_gen_look_around(struct page_vma_mapped_walk *pvmw)
 	int young = 0;
 	pte_t *pte = pvmw->pte;
 	unsigned long addr = pvmw->address;
+	struct vm_area_struct *vma = pvmw->vma;
 	struct folio *folio = pfn_folio(pvmw->pfn);
 	bool can_swap = !folio_is_file_lru(folio);
 	struct mem_cgroup *memcg = folio_memcg(folio);
@@ -4831,11 +4846,15 @@ void lru_gen_look_around(struct page_vma_mapped_walk *pvmw)
 	if (spin_is_contended(pvmw->ptl))
 		return;
 
+	/* exclude special VMAs containing anon pages from COW */
+	if (vma->vm_flags & VM_SPECIAL)
+		return;
+
 	/* avoid taking the LRU lock under the PTL when possible */
 	walk = current->reclaim_state ? current->reclaim_state->mm_walk : NULL;
 
-	start = max(addr & PMD_MASK, pvmw->vma->vm_start);
-	end = min(addr | ~PMD_MASK, pvmw->vma->vm_end - 1) + 1;
+	start = max(addr & PMD_MASK, vma->vm_start);
+	end = min(addr | ~PMD_MASK, vma->vm_end - 1) + 1;
 
 	if (end - start > MIN_LRU_BATCH * PAGE_SIZE) {
 		if (addr - start < MIN_LRU_BATCH * PAGE_SIZE / 2)
@@ -4859,7 +4878,7 @@ void lru_gen_look_around(struct page_vma_mapped_walk *pvmw)
 	for (i = 0, addr = start; addr != end; i++, addr += PAGE_SIZE) {
 		unsigned long pfn;
 
-		pfn = get_pte_pfn(pte[i], pvmw->vma, addr);
+		pfn = get_pte_pfn(pte[i], vma, addr);
 		if (pfn == -1)
 			continue;
 
@@ -4870,7 +4889,7 @@ void lru_gen_look_around(struct page_vma_mapped_walk *pvmw)
 		if (!folio)
 			continue;
 
-		if (!ptep_test_and_clear_young(pvmw->vma, addr, pte + i))
+		if (!ptep_test_and_clear_young(vma, addr, pte + i))
 			VM_WARN_ON_ONCE(true);
 
 		young++;
@@ -5292,6 +5311,7 @@ static int isolate_folios(struct lruvec *lruvec, struct scan_control *sc, int sw
 	int type;
 	int scanned;
 	int tier = -1;
+	int type_to_scan = ANON_AND_FILE;
 	DEFINE_MIN_SEQ(lruvec);
 
 	/*
@@ -5310,7 +5330,8 @@ static int isolate_folios(struct lruvec *lruvec, struct scan_control *sc, int sw
 	else
 		type = get_type_to_scan(lruvec, swappiness, &tier);
 
-	for (i = !swappiness; i < ANON_AND_FILE; i++) {
+	trace_android_vh_isolate_folio_type(swappiness, &type, &tier, &type_to_scan);
+	for (i = !swappiness; i < type_to_scan; i++) {
 		if (tier < 0)
 			tier = get_tier_idx(lruvec, type);
 
@@ -5454,8 +5475,10 @@ static bool should_run_aging(struct lruvec *lruvec, unsigned long max_seq,
 		}
 	}
 
-	/* try to scrape all its memory if this memcg was deleted */
-	*nr_to_scan = mem_cgroup_online(memcg) ? (total >> sc->priority) : total;
+	*nr_to_scan = total >> sc->priority;
+	/* scrape out the remaining pages of a deleted memcg */
+	if (!*nr_to_scan && !mem_cgroup_online(memcg))
+		*nr_to_scan = min(total, SWAP_CLUSTER_MAX);
 
 	/*
 	 * The aging tries to be lazy to reduce the overhead, while the eviction
@@ -5626,6 +5649,10 @@ static int shrink_one(struct lruvec *lruvec, struct scan_control *sc)
 
 	sc->nr_reclaimed += current->reclaim_state->reclaimed_slab;
 	current->reclaim_state->reclaimed_slab = 0;
+
+	/* one retry if offlined */
+	if (!mem_cgroup_online(memcg))
+		return seg != MEMCG_LRU_TAIL ? MEMCG_LRU_TAIL : MEMCG_LRU_YOUNG;
 
 	return success ? MEMCG_LRU_YOUNG : 0;
 }
@@ -6529,6 +6556,11 @@ static void shrink_lruvec(struct lruvec *lruvec, struct scan_control *sc)
 				sc->priority == DEF_PRIORITY);
 
 	blk_start_plug(&plug);
+
+	trace_android_vh_reclaim_before_kswapd(&nr_reclaimed);
+	if (nr_reclaimed >= nr_to_reclaim)
+		goto out;
+
 	while (nr[LRU_INACTIVE_ANON] || nr[LRU_ACTIVE_FILE] ||
 					nr[LRU_INACTIVE_FILE]) {
 		unsigned long nr_anon, nr_file, percentage;
@@ -6598,6 +6630,8 @@ static void shrink_lruvec(struct lruvec *lruvec, struct scan_control *sc)
 		nr[lru] = targets[lru] * (100 - percentage) / 100;
 		nr[lru] -= min(nr[lru], nr_scanned);
 	}
+
+out:
 	blk_finish_plug(&plug);
 	sc->nr_reclaimed += nr_reclaimed;
 
@@ -7326,6 +7360,7 @@ unsigned long try_to_free_pages(struct zonelist *zonelist, int order,
 		.may_swap = 1,
 #endif
 	};
+	int prio = 0;
 
 	/*
 	 * scan_control uses s8 fields for order, priority, and reclaim_idx.
@@ -7345,14 +7380,17 @@ unsigned long try_to_free_pages(struct zonelist *zonelist, int order,
 
 	set_task_reclaim_state(current, &sc.reclaim_state);
 	trace_mm_vmscan_direct_reclaim_begin(order, sc.gfp_mask);
+	trace_android_vh_direct_reclaim_begin(&prio);
 
 	nr_reclaimed = do_try_to_free_pages(zonelist, &sc);
 
+	trace_android_vh_direct_reclaim_end(prio);
 	trace_mm_vmscan_direct_reclaim_end(nr_reclaimed);
 	set_task_reclaim_state(current, NULL);
 
 	return nr_reclaimed;
 }
+EXPORT_SYMBOL_GPL(try_to_free_pages);
 
 #ifdef CONFIG_MEMCG
 
