@@ -20,12 +20,14 @@ static struct blkcg_policy ssg_blkcg_policy;
 
 
 #define CPD_TO_SSG_BLKCG(_cpd) \
-	container_of_safe((_cpd), struct ssg_blkcg, cpd)
+	({ typeof(_cpd) __cpd = (_cpd); \
+		__cpd ? container_of(__cpd, struct ssg_blkcg, cpd) : NULL; })
 #define BLKCG_TO_SSG_BLKCG(_blkcg) \
 	CPD_TO_SSG_BLKCG(blkcg_to_cpd((_blkcg), &ssg_blkcg_policy))
 
 #define PD_TO_SSG_BLKG(_pd) \
-	container_of_safe((_pd), struct ssg_blkg, pd)
+	({ typeof(_pd) __pd = (_pd); \
+		__pd ? container_of(__pd, struct ssg_blkg, pd) : NULL; })
 #define BLKG_TO_SSG_BLKG(_blkg) \
 	PD_TO_SSG_BLKG(blkg_to_pd((_blkg), &ssg_blkcg_policy))
 
