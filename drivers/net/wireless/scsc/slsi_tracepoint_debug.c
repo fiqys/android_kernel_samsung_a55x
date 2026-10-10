@@ -197,7 +197,7 @@ void slsi_unregister_all_tracepoints(void)
 
 void tcp_retransmit_skb_callback(void *ignore, const struct sock *sk, const struct sk_buff *skb)
 {
-	struct tcp_sock *tp = NULL;
+	const struct tcp_sock *tp = NULL;
 	struct inet_sock *inet = NULL;
 	__be32 daddr = 0;
 	__be32 saddr = 0;
