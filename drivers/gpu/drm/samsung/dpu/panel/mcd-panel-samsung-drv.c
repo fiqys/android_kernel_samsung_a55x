@@ -382,6 +382,13 @@ static int mcd_drm_panel_set_fingermask_layer(struct exynos_drm_connector *exyno
 
 	return ret;
 }
+
+static int mcd_drm_panel_get_fod_dim_alpha(struct exynos_drm_connector *exynos_conn, u32 *alpha)
+{
+	struct exynos_panel *ctx = exynos_connector_to_panel(exynos_conn);
+
+	return call_mcd_panel_func(ctx->mcd_panel_dev, get_fod_dim_alpha, alpha);
+}
 #endif
 
 static void mcd_drm_set_uevent_recovery_state(struct exynos_panel *ctx, void *arg)
@@ -404,6 +411,7 @@ static const struct exynos_drm_connector_funcs exynos_panel_connector_funcs = {
 	.atomic_get_property = exynos_panel_connector_get_property,
 #if IS_ENABLED(CONFIG_USDM_PANEL_MASK_LAYER)
 	.set_fingermask_layer = mcd_drm_panel_set_fingermask_layer,
+	.get_fod_dim_alpha = mcd_drm_panel_get_fod_dim_alpha,
 #endif
 };
 
