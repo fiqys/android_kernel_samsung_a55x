@@ -103,6 +103,7 @@ struct exynos_drm_properties {
 	struct drm_property *split;
 	struct drm_property *hdr_fd;
 	struct drm_property *block;
+	struct drm_property *fod_layer;
 
 	/* properties for connector */
 	struct drm_property *max_luminance;
