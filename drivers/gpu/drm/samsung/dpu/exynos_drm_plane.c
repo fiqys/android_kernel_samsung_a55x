@@ -144,6 +144,8 @@ static int exynos_drm_plane_set_property(struct drm_plane *plane,
 		exynos_drm_replace_property_blob_from_id(
 			state->plane->dev, &exynos_state->block, val,
 			sizeof(struct exynos_block_rect));
+	} else if (property == p->fod_layer) {
+		exynos_state->fod_layer = val;
 	} else {
 		return -EINVAL;
 	}
@@ -173,6 +175,8 @@ static int exynos_drm_plane_get_property(struct drm_plane *plane,
 		*val = I642U64(exynos_state->hdr_fd);
 	else if (property == p->block)
 		*val = (exynos_state->block) ? exynos_state->block->base.id : 0;
+	else if (property == p->fod_layer)
+		*val = exynos_state->fod_layer;
 	else
 		return -EINVAL;
 
@@ -496,6 +500,10 @@ int exynos_drm_plane_create_properties(struct drm_device *drm_dev)
 	if (!p->block)
 		return -ENOMEM;
 
+	p->fod_layer = drm_property_create_range(drm_dev, 0, "fod_layer", 0, 1);
+	if (!p->fod_layer)
+		return -ENOMEM;
+
 	return 0;
 }
 
@@ -579,6 +587,7 @@ exynos_drm_plane_create(struct drm_device *dev, unsigned int index,
 		drm_object_attach_property(&plane->base, p->split, 0);
 
 	drm_object_attach_property(&plane->base, p->hdr_fd, -1);
+	drm_object_attach_property(&plane->base, p->fod_layer, 0);
 
 	ret = exynos_drm_plane_attach_restrictions_property(dev, &plane->base,
 			config->res);
