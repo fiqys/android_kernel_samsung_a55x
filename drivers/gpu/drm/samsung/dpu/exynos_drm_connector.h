@@ -110,6 +110,7 @@ struct exynos_drm_connector_funcs {
 	 * Panel-drv's mask_layer func will be called.
 	 */
 	int (*set_fingermask_layer)(struct exynos_drm_connector *exynos_conn, u32 after);
+	int (*get_fod_dim_alpha)(struct exynos_drm_connector *exynos_conn, u32 *alpha);
 #endif
 };
 
