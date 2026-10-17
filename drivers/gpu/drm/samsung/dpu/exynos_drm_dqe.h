@@ -123,6 +123,7 @@ struct exynos_dqe {
 
 	const struct exynos_dqe_funcs *funcs;
 	bool initialized;
+	bool fod_pressed;
 };
 
 #if IS_ENABLED(CONFIG_DRM_SAMSUNG_DQE)
