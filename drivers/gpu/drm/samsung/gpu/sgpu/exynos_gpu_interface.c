@@ -389,8 +389,10 @@ static void gpu_mm_min_reset(struct work_struct *work)
 	struct devfreq *df = p_adev->devfreq;
 	struct sgpu_governor_data *data = df->data;
 
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(p_adev, DMSG_INFO, DMSG_DVFS,
 		 "MIN_REQUEST gpu_mm_min=0 (timer reset)");
+#endif
 	DRM_INFO("[sgpu] MIN_REQUEST gpu_mm_min=0 (timer reset)");
 #if IS_ENABLED(CONFIG_EXYNOS_PM_QOS)
 	exynos_pm_qos_update_request(&exynos_mm_gpu_min_qos, 0);
@@ -432,8 +434,10 @@ static ssize_t gpu_mm_min_clock_store(struct kobject *kobj,
 	if (ret != 1)
 		return -EINVAL;
 
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(p_adev, DMSG_INFO, DMSG_DVFS,
 		 "MIN_REQUEST gpu_mm_min=%lu", value);
+#endif
 	DRM_INFO("[sgpu] MIN_REQUEST gpu_mm_min=%lu", value);
 #if IS_ENABLED(CONFIG_EXYNOS_PM_QOS)
 	exynos_pm_qos_update_request(&exynos_mm_gpu_min_qos, value);
@@ -469,8 +473,10 @@ static ssize_t gpu_disable_llc_way_store(struct kobject *kobj,
 	if (ret)
 		return ret;
 
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(p_adev, DMSG_INFO, DMSG_DVFS,
 		 "LLC_UPDATE gpu_disable_llc_way=%u", value);
+#endif
 	DRM_INFO("[sgpu] LLC_UPDATE gpu_disable_llc_way=%u", value);
 
 	/* this is a boolean value */
@@ -502,8 +508,10 @@ static ssize_t gpu_min_clock_store(struct kobject *kobj,
 #endif /* CONFIG_EXYNOS_PM_QOS */
 
 
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(p_adev, DMSG_INFO, DMSG_DVFS,
 		 "MIN_REQUEST ski_gpu_min=%lu", freq);
+#endif
 	DRM_INFO("[sgpu] MIN_REQUEST ski_gpu_min=%lu", freq);
 #if IS_ENABLED(CONFIG_EXYNOS_PM_QOS)
 	exynos_pm_qos_update_request(&exynos_ski_gpu_min_qos, freq);
@@ -535,8 +543,10 @@ static ssize_t gpu_max_clock_store(struct kobject *kobj,
 		return -EINVAL;
 #endif /* CONFIG_EXYNOS_PM_QOS */
 
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(p_adev, DMSG_INFO, DMSG_DVFS,
 		 "MAX_REQUEST ski_gpu_max=%lu", freq);
+#endif
 	DRM_INFO("[sgpu] MAX_REQUEST ski_gpu_max=%lu", freq);
 #if IS_ENABLED(CONFIG_EXYNOS_PM_QOS)
 	exynos_pm_qos_update_request(&exynos_ski_gpu_max_qos, freq);
@@ -568,8 +578,10 @@ static ssize_t gpu_siop_max_clock_store(struct kobject *kobj,
 		return -EINVAL;
 #endif /* CONFIG_EXYNOS_PM_QOS */
 
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(p_adev, DMSG_INFO, DMSG_DVFS,
 		 "MAX_REQUEST gpu_siop_max=%u", freq);
+#endif
 	DRM_INFO("[sgpu] MAX_REQUEST gpu_siop_max=%u", freq);
 #if IS_ENABLED(CONFIG_EXYNOS_PM_QOS)
 	exynos_pm_qos_update_request(&exynos_gpu_siop_max_qos, freq);
@@ -1463,8 +1475,10 @@ int gpu_dvfs_set_max_freq(unsigned long freq)
 	if (freq == 0)
 		freq = PM_QOS_MAX_FREQUENCY_DEFAULT_VALUE;
 
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(p_adev, DMSG_INFO, DMSG_DVFS,
 		 "MAX_REQUEST pm_qos=%lu", freq);
+#endif
 	DRM_INFO("[sgpu] MAX_REQEUST pm_qos=%lu", freq);
 #if IS_ENABLED(CONFIG_EXYNOS_PM_QOS)
 	dev_pm_qos_update_request(&exynos_pm_qos_max, freq);
@@ -1505,8 +1519,10 @@ int gpu_dvfs_set_min_freq(unsigned long freq)
 		return -EAGAIN;
 	}
 
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(p_adev, DMSG_INFO, DMSG_DVFS,
 		 "MIN_REQUEST pm_qos=%lu", freq);
+#endif
 	DRM_INFO("[sgpu] MIN_REQEUST pm_qos=%lu", freq);
 	/* Round down to kHz for PM QoS */
 	dev_pm_qos_update_request(&exynos_pm_qos_min, freq);
@@ -1761,8 +1777,10 @@ int gpu_tmu_notifier(struct notifier_block *nb, unsigned long event,
 	data = df->data;
 
 	frequency = *(int *)v;
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(p_adev, DMSG_INFO, DMSG_DVFS,
 		 "MAX_REQUEST tmu_pm_qos=%d", frequency);
+#endif
 #if IS_ENABLED(CONFIG_EXYNOS_PM_QOS) && IS_ENABLED(CONFIG_GPU_THERMAL)
 	if (event == GPU_NORMAL) {
 		exynos_pm_qos_update_request(&exynos_tmu_gpu_max_qos,

@@ -1119,9 +1119,11 @@ int amdgpu_vm_flush(struct amdgpu_ring *ring, struct amdgpu_job *job,
 		r = amdgpu_fence_emit(ring, &fence, 0);
 		if (r)
 			return r;
+#ifdef CONFIG_DEBUG_FS
 		SGPU_LOG(adev, DMSG_INFO, DMSG_ETC,
 			"emit fence : %s sgpu %llu/%llu",
 			ring->name, fence->context, fence->seqno);
+#endif
 	}
 
 	if (vm_flush_needed) {

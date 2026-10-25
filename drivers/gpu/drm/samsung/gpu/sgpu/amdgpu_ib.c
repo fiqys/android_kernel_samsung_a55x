@@ -299,6 +299,7 @@ int amdgpu_ib_schedule(struct amdgpu_ring *ring, unsigned num_ibs,
 		return r;
 	}
 
+#ifdef CONFIG_DEBUG_FS
 	if (job && job->fence)
 		SGPU_LOG(adev, DMSG_INFO, DMSG_ETC,
 			"fence replace %s sgpu %llu/%llu -> %llu/%llu",
@@ -318,6 +319,7 @@ int amdgpu_ib_schedule(struct amdgpu_ring *ring, unsigned num_ibs,
 		(job) ? job->base.s_fence->finished.context : 0,
 		(job) ? job->base.s_fence->finished.seqno : 0,
 		(*f)->context, (*f)->seqno);
+#endif
 
 	if (ring->funcs->insert_end)
 		ring->funcs->insert_end(ring);

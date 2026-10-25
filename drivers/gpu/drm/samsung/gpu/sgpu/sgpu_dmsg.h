@@ -31,6 +31,7 @@ enum sgpu_dmsg_level {
 	DMSG_LEVEL_MAX,
 };
 
+#ifdef CONFIG_DEBUG_FS
 #define SGPU_LOG(adev, level, func, fmt, ...)					\
 do {										\
 	if (adev && adev->sgpu_dmsg &&						\
@@ -40,6 +41,7 @@ do {										\
 		sgpu_dmsg_log(adev, __func__, func, time, fmt, ##__VA_ARGS__);	\
 	}									\
 } while (0)
+#endif
 
 void sgpu_dmsg_log(struct amdgpu_device *adev, const char *caller, int func,
 		   ktime_t time, const char *fmt, ...);

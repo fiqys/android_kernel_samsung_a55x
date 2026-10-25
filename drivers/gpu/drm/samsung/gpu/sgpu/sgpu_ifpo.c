@@ -61,7 +61,9 @@ static void sgpu_ifpo_half_enable(struct amdgpu_device *adev)
 	WREG32_SOC15(GC, 0, mmRLC_SAFE_MODE, 0x1);
 	do { } while (RREG32_SOC15(GC, 0, mmRLC_SAFE_MODE) != 0x0);
 
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(adev, DMSG_INFO, DMSG_POWER, "IFPO half init");
+#endif
 }
 
 static void sgpu_ifpo_half_reset(struct amdgpu_device *adev)
@@ -75,6 +77,7 @@ static void sgpu_ifpo_half_lock(struct amdgpu_device *adev)
 	void *addr = adev->pm.pmu_mmio;
 	uint32_t gpu_status = 0;
 	bool gpu_wakeup = false;
+	int lock_count __maybe_unused;
 
 	if (addr == NULL)
 		return;
@@ -99,11 +102,15 @@ static void sgpu_ifpo_half_lock(struct amdgpu_device *adev)
 		trace_sgpu_ifpo_power_on(1);
 	}
 
+	lock_count = atomic_inc_return(&ifpo->count);
+
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(adev, DMSG_INFO, DMSG_POWER,
 		"IFPO LOCK   : hw(%u) sw(%d) usr(%u) rtm(%u) wakeup(%u)",
 		sgpu_ifpo_get_hw_lock_value(adev),
-		atomic_inc_return(&ifpo->count),
+		lock_count,
 		ifpo->user_enable, ifpo->runtime_enable, gpu_wakeup);
+#endif
 
 	trace_sgpu_ifpo_state_change_end(1);
 }
@@ -125,18 +132,22 @@ static void sgpu_ifpo_half_unlock(struct amdgpu_device *adev)
 	hw_counter = sgpu_ifpo_get_hw_lock_value(adev);
 	sw_counter = atomic_dec_return(&ifpo->count);
 
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(adev, DMSG_INFO, DMSG_POWER,
 		"IFPO UNLOCK : hw(%u) sw(%d) usr(%u) rtm(%u)",
 		hw_counter, sw_counter,
 		ifpo->user_enable, ifpo->runtime_enable);
+#endif
 
 	/* Note : it's supposed that sw/hw counter should get 0 at same time
 	 * but values could be different by scheduling of multi-threads
 	 */
 	if (sw_counter == 0 && hw_counter != sw_counter)
+#ifdef CONFIG_DEBUG_FS
 		SGPU_LOG(adev, DMSG_INFO, DMSG_POWER,
 				"count mismatch : hw(%u) sw(%d)",
 				hw_counter, sw_counter);
+#endif
 
 	trace_sgpu_ifpo_power_off(atomic_read(&ifpo->count));
 	trace_sgpu_ifpo_state_change_end(0);
@@ -144,23 +155,29 @@ static void sgpu_ifpo_half_unlock(struct amdgpu_device *adev)
 
 static void sgpu_ifpo_half_suspend(struct amdgpu_device *adev)
 {
+#ifdef CONFIG_DEBUG_FS
 	struct sgpu_ifpo *ifpo = &adev->ifpo;
+#endif
 
 	/* GPU should be IFPO power on state before entering suspend */
 	sgpu_ifpo_half_lock(adev);
 	/* reset ColdGfxOff = 2'b00 before entering suspend */
 	sgpu_ifpo_half_reset(adev);
 
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(adev, DMSG_INFO, DMSG_POWER,
 			"IFPO SUSPEND : hw(%u) sw(%d) usr(%u) rtm(%u)",
 			sgpu_ifpo_get_hw_lock_value(adev),
 			atomic_read(&ifpo->count),
 			ifpo->user_enable, ifpo->runtime_enable);
+#endif
 }
 
 static void sgpu_ifpo_half_resume(struct amdgpu_device *adev)
 {
+#ifdef CONFIG_DEBUG_FS
 	struct sgpu_ifpo *ifpo = &adev->ifpo;
+#endif
 	void *addr = adev->pm.pmu_mmio;
 
 	/*
@@ -176,11 +193,13 @@ static void sgpu_ifpo_half_resume(struct amdgpu_device *adev)
 	if (!adev->ifpo.runtime_enable)
 		sgpu_ifpo_half_lock(adev);
 
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(adev, DMSG_INFO, DMSG_POWER,
 			"IFPO RESUME : hw(%u) sw(%d) usr(%u) rtm(%u)",
 			sgpu_ifpo_get_hw_lock_value(adev),
 			atomic_read(&ifpo->count),
 			ifpo->user_enable, ifpo->runtime_enable);
+#endif
 }
 
 static void sgpu_ifpo_half_set_user_enable(struct amdgpu_device *adev, bool value)
@@ -274,7 +293,9 @@ static void sgpu_ifpo_abort_enable(struct amdgpu_device *adev)
 	WREG32_SOC15(GC, 0, mmRLC_SAFE_MODE, 0x1);
 	do { } while(RREG32_SOC15(GC, 0, mmRLC_SAFE_MODE) != 0x0);
 
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(adev, DMSG_INFO, DMSG_POWER, "IFPO abort init");
+#endif
 }
 
 static void sgpu_ifpo_abort_reset(struct amdgpu_device *adev)
@@ -391,7 +412,9 @@ static void __sgpu_ifpo_abort_power_on(struct amdgpu_device *adev)
 
 	ifpo->state = true;
 
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(adev, DMSG_INFO, DMSG_POWER, "IFPO POWER ON");
+#endif
 
 	trace_sgpu_ifpo_state_change_end(1);
 }
@@ -399,6 +422,7 @@ static void __sgpu_ifpo_abort_power_on(struct amdgpu_device *adev)
 static void sgpu_ifpo_abort_power_on(struct amdgpu_device *adev)
 {
 	struct sgpu_ifpo *ifpo = &adev->ifpo;
+	int lock_count __maybe_unused;
 
 	mutex_lock(&ifpo->lock);
 
@@ -407,10 +431,14 @@ static void sgpu_ifpo_abort_power_on(struct amdgpu_device *adev)
 		return;
 	}
 
+	lock_count = atomic_inc_return(&ifpo->count);
+
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(adev, DMSG_INFO, DMSG_POWER,
 		"IFPO POEWR ON : count(%d) usr(%u) rtm(%u) afm(%u)",
-		atomic_inc_return(&ifpo->count),
+		lock_count,
 		ifpo->user_enable, ifpo->runtime_enable, ifpo->afm_enable);
+#endif
 
 	__sgpu_ifpo_abort_power_on(adev);
 
@@ -448,9 +476,11 @@ static void sgpu_ifpo_abort_power_off(struct amdgpu_device *adev)
 	if ((ih_rptr != ih_wptr) || cp_busy ||
 	    (atomic_read(&adev->pc_count) != 0) ||
 	    (atomic_read(&adev->sqtt_count) != 0)) {
+#ifdef CONFIG_DEBUG_FS
 		SGPU_LOG(adev, DMSG_INFO, DMSG_POWER,
 			"GRBM_STATUE=0x%08x, CP_BUSY= 0x%x, IH rptr=%u, wptr=%u",
 			grbm_status, cp_busy, ih_rptr, ih_wptr);
+#endif
 		goto out;
 	}
 
@@ -468,7 +498,9 @@ static void sgpu_ifpo_abort_power_off(struct amdgpu_device *adev)
 
 	sgpu_pm_monitor_update(adev, SGPU_POWER_STATE_IFPO);
 
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(adev, DMSG_INFO, DMSG_POWER, "IFPO POWER OFF");
+#endif
 
 	trace_sgpu_ifpo_power_off(0);
 out:
@@ -499,22 +531,29 @@ static void sgpu_ifpo_abort_suspend(struct amdgpu_device *adev)
 
 static void sgpu_ifpo_abort_resume(struct amdgpu_device *adev)
 {
+#ifdef CONFIG_DEBUG_FS
 	struct sgpu_ifpo *ifpo = &adev->ifpo;
+#endif
 
-	atomic_set(&ifpo->count, 0);
+	atomic_set(&adev->ifpo.count, 0);
 }
 
 static void sgpu_ifpo_abort_count_decrease(struct amdgpu_device *adev)
 {
 	struct sgpu_ifpo *ifpo = &adev->ifpo;
+	int lock_count __maybe_unused;
 
 	if (!adev->probe_done || adev->in_runpm)
 		return;
 
+	lock_count = atomic_dec_return(&ifpo->count);
+
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(adev, DMSG_INFO, DMSG_POWER,
 		"IFPO COUNT DEC : count(%d) usr(%u) rtm(%u) afm(%u)",
-		atomic_dec_return(&ifpo->count),
+		lock_count,
 		ifpo->user_enable, ifpo->runtime_enable, ifpo->afm_enable);
+#endif
 }
 
 static void sgpu_ifpo_abort_set_user_enable(struct amdgpu_device *adev, bool value)

@@ -882,7 +882,9 @@ static int amdgpu_pmops_suspend(struct device *dev)
 	struct amdgpu_device *adev = drm_to_adev(drm_dev);
 	uint32_t i, ret;
 
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(adev, DMSG_INFO, DMSG_POWER, "pmops suspend start");
+#endif
 
 	amdgpu_cancel_all_tdr(adev);
 	cancel_delayed_work_sync(&adev->page_fault_work);
@@ -904,7 +906,9 @@ static int amdgpu_pmops_suspend(struct device *dev)
 		return 0;
 
 	ret = amdgpu_device_suspend(drm_dev, false);
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(adev, DMSG_INFO, DMSG_POWER, "pmops suspend end");
+#endif
 
 	return ret;
 }
@@ -915,7 +919,9 @@ static int amdgpu_pmops_resume(struct device *dev)
 	struct amdgpu_device *adev = drm_to_adev(drm_dev);
 	uint32_t i, ret = 0;
 
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(adev, DMSG_INFO, DMSG_POWER, "pmops resume start");
+#endif
 
 	/* MGCG clock setting for POR */
 	vangogh_lite_gc_set_sysregs(adev);
@@ -939,8 +945,9 @@ static int amdgpu_pmops_resume(struct device *dev)
 
 	amdgpu_device_unlock_adev(adev);
 
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(adev, DMSG_INFO, DMSG_POWER, "pmops resume end");
-
+#endif
 	return ret;
 }
 
@@ -990,13 +997,17 @@ static int amdgpu_pmops_runtime_suspend(struct device *dev)
 		return -EBUSY;
 	}
 
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(adev, DMSG_INFO, DMSG_POWER, "runtime suspend start");
+#endif
 	/* wait for all rings to drain before suspending */
 	for (i = 0; i < AMDGPU_MAX_RINGS; i++) {
 		struct amdgpu_ring *ring = adev->rings[i];
 		if (ring && ring->sws_ctx.queue_state == AMDGPU_SWS_QUEUE_ENABLED) {
+#ifdef CONFIG_DEBUG_FS
                   	SGPU_LOG(adev, DMSG_INFO, DMSG_POWER,
                                  "runtime suspend aborted: queue mapped");
+#endif
 			return -EBUSY;
 		}
 		if (ring && ring->sched.ready) {
@@ -1015,7 +1026,9 @@ static int amdgpu_pmops_runtime_suspend(struct device *dev)
 	if (ret)
 		return ret;
 
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(adev, DMSG_INFO, DMSG_POWER, "runtime suspend end");
+#endif
 	return 0;
 }
 
@@ -1028,14 +1041,18 @@ static int amdgpu_pmops_runtime_resume(struct device *dev)
 	if (!adev->runpm)
 		return -EINVAL;
 
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(adev, DMSG_INFO, DMSG_POWER, "runtime resume start");
+#endif
 
 	ret = amdgpu_device_resume(drm_dev, false);
 	if (amdgpu_device_supports_boco(drm_dev))
 		drm_dev->switch_power_state = DRM_SWITCH_POWER_ON;
 	adev->in_runpm = false;
 
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(adev, DMSG_INFO, DMSG_POWER, "runtime resume end");
+#endif
 
 	return 0;
 }
@@ -1169,7 +1186,9 @@ static struct drm_driver kms_driver = {
 	.open = amdgpu_driver_open_kms,
 	.postclose = amdgpu_driver_postclose_kms,
 	.lastclose = NULL,
+#ifdef CONFIG_DEBUG_FS
 	.debugfs_init = amdgpu_debugfs_init,
+#endif
 	.ioctls = amdgpu_ioctls_kms,
 	.dumb_create = amdgpu_mode_dumb_create,
 	.dumb_map_offset = amdgpu_mode_dumb_mmap,
@@ -1238,9 +1257,11 @@ sgpu_kms_probe(struct platform_device *pdev)
 	ddev = adev_to_drm(adev);
 	dev_set_drvdata(&pdev->dev, ddev);
 
+#ifdef CONFIG_DEBUG_FS
 	ret = sgpu_dmsg_init(adev);
 	if (ret)
 		return ret;
+#endif
 
 	if (sgpu_force_chip_rev == 0) {
 		ret = of_property_read_u32(pdev->dev.of_node, "chip_revision",

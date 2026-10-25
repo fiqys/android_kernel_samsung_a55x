@@ -169,7 +169,9 @@ int sgpu_utilization_job_start(struct devfreq *df, uint32_t job_count, bool cu_j
 	struct devfreq_dev_status *stat = &df->last_status;
 	struct utilization_data *data = stat->private_data;
 	struct utilization_timeinfo *sw_info = &data->timeinfo[SGPU_TIMEINFO_SW];
+#ifdef CONFIG_DEBUG_FS
 	struct amdgpu_device *adev = data->adev;
+#endif
 	int ret = 0;
 	uint64_t current_time;
 	unsigned long flags;
@@ -196,6 +198,7 @@ int sgpu_utilization_job_start(struct devfreq *df, uint32_t job_count, bool cu_j
 	if (cu_job)
 		data->cu_active += job_count;
 
+#ifdef CONFIG_DEBUG_FS
 	if (cu_job) {
 		SGPU_LOG(adev, DMSG_INFO, DMSG_POWER,
 				"amdgpu_ib_schedule cu_active_cnt %d, usage_cnt %d",
@@ -205,6 +208,7 @@ int sgpu_utilization_job_start(struct devfreq *df, uint32_t job_count, bool cu_j
 				"amdgpu_ib_schedule active_cnt %d, usage_cnt %d",
 				data->active, data->adev->dev->power.usage_count);
 	}
+#endif
 
 	spin_unlock_irqrestore(&data->lock, flags);
 	if (data->active < 0)
@@ -217,8 +221,10 @@ int sgpu_utilization_job_end(struct devfreq *df, uint32_t job_count, bool cu_job
 	struct devfreq_dev_status *stat = &df->last_status;
 	struct utilization_data *data = stat->private_data;
 	struct utilization_timeinfo *sw_info = &data->timeinfo[SGPU_TIMEINFO_SW];
+#ifdef CONFIG_DEBUG_FS
 	struct sgpu_governor_data *gdata = df->data;
 	struct amdgpu_device *adev = gdata->adev;
+#endif
 	uint64_t current_time;
 	int ret = 0;
 	unsigned long flags;
@@ -242,17 +248,21 @@ int sgpu_utilization_job_end(struct devfreq *df, uint32_t job_count, bool cu_job
 			sw_info->cu_busy_time += current_time - data->cu_last_time;
 			data->cu_last_time = current_time;
 		}
+#ifdef CONFIG_DEBUG_FS
 		SGPU_LOG(adev, DMSG_INFO, DMSG_ETC,
 				"amdgpu_fence_process active_cnt %d, usage_cnt %d",
 				data->active, data->adev->dev->power.usage_count);
+#endif
 	} else if (cu_job && data->cu_active == 0) {
 		/* compute(CL) job end point (other jobs are still running) */
 		current_time = sched_clock();
 		sw_info->cu_busy_time += current_time - data->cu_last_time;
 		data->cu_last_time = current_time;
+#ifdef CONFIG_DEBUG_FS
 		SGPU_LOG(adev, DMSG_INFO, DMSG_ETC,
 				"amdgpu_fence_process cu active_cnt %d, usage_cnt %d",
 				data->cu_active, data->adev->dev->power.usage_count);
+#endif
 	}
 
 	spin_unlock_irqrestore(&data->lock, flags);
@@ -266,7 +276,9 @@ int sgpu_utilization_capture(struct devfreq_dev_status *stat)
 	struct utilization_data *data = stat->private_data;
 	struct utilization_timeinfo *sw_info = &data->timeinfo[SGPU_TIMEINFO_SW];
 	struct sgpu_governor_data *governor_data = data->devfreq->data;
+#ifdef CONFIG_DEBUG_FS
 	struct amdgpu_device *adev = data->adev;
+#endif
 
 	uint64_t current_time;
 	int ret = 0;
@@ -301,9 +313,11 @@ int sgpu_utilization_capture(struct devfreq_dev_status *stat)
 		data->utilization_src->sgpu_get_status(stat, false);
 	}
 
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(adev, DMSG_INFO, DMSG_DVFS, "cur_freq=%8lu, load=%4u",
 		 stat->current_frequency,
 		 div64_u64(sw_info->busy_time * 100, sw_info->total_time));
+#endif
 	trace_sgpu_devfreq_utilization(sw_info, stat->current_frequency);
 
 	spin_unlock_irqrestore(&data->lock, flags);
@@ -369,7 +383,9 @@ void sgpu_utilization_trace_after(struct devfreq_dev_status *stat, unsigned long
 {
 	struct utilization_data *data = stat->private_data;
 	struct sgpu_governor_data *governor_data = data->devfreq->data;
+#ifdef CONFIG_DEBUG_FS
 	struct amdgpu_device *adev = data->adev;
+#endif
 	uint64_t current_time;
 	unsigned long flags;
 
@@ -381,9 +397,11 @@ void sgpu_utilization_trace_after(struct devfreq_dev_status *stat, unsigned long
 
 	spin_lock_irqsave(&data->lock, flags);
 
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(adev, DMSG_INFO, DMSG_DVFS, "min_freq=%8lu, max_freq=%8lu, cur_freq=%8lu",
 		 governor_data->min_freq, governor_data->max_freq,
 		 stat->current_frequency);
+#endif
 
 	trace_sgpu_devfreq_monitor(data->devfreq, governor_data->min_freq,
 				   governor_data->max_freq,

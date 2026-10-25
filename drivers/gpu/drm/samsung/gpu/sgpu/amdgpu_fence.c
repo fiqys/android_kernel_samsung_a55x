@@ -315,11 +315,12 @@ bool amdgpu_fence_process(struct amdgpu_ring *ring)
 			pm_runtime_mark_last_busy(adev_to_drm(ring->adev)->dev);
 			pm_runtime_put_autosuspend(adev_to_drm(ring->adev)->dev);
 		}
-
+#ifdef CONFIG_DEBUG_FS
 		SGPU_LOG(ring->adev, DMSG_INFO, DMSG_ETC,
 			"pm(%d) seq/last_seq %u/%u sgpu %llu/%llu",
 			adev->dev->power.usage_count,
 			seq_save, last_seq_save, fence->context, fence->seqno);
+#endif
 
 	} while (last_seq != seq);
 

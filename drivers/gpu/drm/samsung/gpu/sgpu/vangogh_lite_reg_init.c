@@ -169,8 +169,10 @@ void vangogh_lite_didt_enable(struct amdgpu_device *adev)
 	adev->didt_enable = true;
 	WREG32_DIDT(DIDT_SQ_CTRL0, 0x22550c61);
 
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(adev, DMSG_INFO, DMSG_DVFS, "didt enable 0x%08x\n",
 		RREG32_DIDT(DIDT_SQ_CTRL0));
+#endif
 }
 
 void vangogh_lite_didt_disable(struct amdgpu_device *adev)
@@ -178,8 +180,10 @@ void vangogh_lite_didt_disable(struct amdgpu_device *adev)
 	adev->didt_enable = false;
 	WREG32_DIDT(DIDT_SQ_CTRL0, 0x22550c40);
 
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(adev, DMSG_INFO, DMSG_DVFS, "didt disable 0x%08x\n",
 		RREG32_DIDT(DIDT_SQ_CTRL0));
+#endif
 }
 
 void vangogh_lite_edc_enable(struct amdgpu_device *adev)
@@ -187,8 +191,10 @@ void vangogh_lite_edc_enable(struct amdgpu_device *adev)
 	adev->edc_enable = true;
 	WREG32_DIDT(DIDT_SQ_EDC_CTRL, 0x00401c71);
 
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(adev, DMSG_INFO, DMSG_DVFS, "edc enable 0x%08x\n",
 		RREG32_DIDT(DIDT_SQ_EDC_CTRL));
+#endif
 }
 
 void vangogh_lite_edc_disable(struct amdgpu_device *adev)
@@ -196,6 +202,8 @@ void vangogh_lite_edc_disable(struct amdgpu_device *adev)
 	adev->edc_enable = false;
 	WREG32_DIDT(DIDT_SQ_EDC_CTRL, 0x00401c70);
 
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(adev, DMSG_INFO, DMSG_DVFS, "edc disable 0x%08x\n",
 		RREG32_DIDT(DIDT_SQ_EDC_CTRL));
+#endif
 }

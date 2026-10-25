@@ -5996,8 +5996,10 @@ static int gfx_v10_0_wait_for_rlc_autoload_complete(struct amdgpu_device *adev)
 			udelay(1);
 		}
 	}
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(adev, DMSG_INFO, DMSG_POWER,
 		"cp_status:0x%x, bootload_status:0x%x", cp_status, bootload_status);
+#endif
 
 
 	if (i >= adev->usec_timeout) {
@@ -8998,8 +9000,10 @@ static void gfx_v10_0_ring_set_wptr_gfx(struct amdgpu_ring *ring)
 		WREG32_SOC15(GC, 0, mmCP_RB0_WPTR, lower_32_bits(ring->wptr));
 		WREG32_SOC15(GC, 0, mmCP_RB0_WPTR_HI, upper_32_bits(ring->wptr));
 	}
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(adev, DMSG_INFO, DMSG_POWER, "ring[%d] wptr:%x, %lx",
 		ring->wptr_offs, ring->wptr, RREG32_SOC15(GC, 0, mmCP_DEBUG_CNTL));
+#endif
 }
 
 static u64 gfx_v10_0_ring_get_rptr_compute(struct amdgpu_ring *ring)
@@ -9059,8 +9063,10 @@ static void gfx_v10_0_ring_set_wptr_compute(struct amdgpu_ring *ring)
 	} else {
 		BUG(); /* only DOORBELL method supported on gfx10 now */
 	}
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(adev, DMSG_INFO, DMSG_POWER, "ring[%d] wptr:%x, %lx",
 		ring->wptr_offs, ring->wptr, RREG32_SOC15(GC, 0, mmCP_DEBUG_CNTL));
+#endif
 }
 
 static void gfx_v10_0_ring_emit_hdp_flush(struct amdgpu_ring *ring)
@@ -10326,8 +10332,10 @@ static int gfx_v10_0_eop_irq(struct amdgpu_device *adev,
 	pipe_id = (entry->ring_id & 0x03) >> 0;
 	queue_id = (entry->ring_id & 0x70) >> 4;
 
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(adev, DMSG_INFO, DMSG_ETC, "me=%d, pipe=%d, queue=%d",
 		          me_id, pipe_id, queue_id);
+#endif
 
 	switch (me_id) {
 	case 0:

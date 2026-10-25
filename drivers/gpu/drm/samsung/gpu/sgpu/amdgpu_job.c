@@ -69,9 +69,11 @@ static enum drm_gpu_sched_stat amdgpu_job_timedout(struct drm_sched_job *s_job)
 	DRM_ERROR("Process information: process %s pid %d thread %s pid %d\n",
 		  ti.process_name, ti.tgid, ti.task_name, ti.pid);
 
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(adev, DMSG_INFO, DMSG_ETC,
 			"Process information: process %s pid %d thread %s pid %d\n",
 			ti.process_name, ti.tgid, ti.task_name, ti.pid);
+#endif
 
 	if (adev->runpm) {
 		r = pm_runtime_get_sync(adev->ddev.dev);
@@ -94,6 +96,7 @@ static enum drm_gpu_sched_stat amdgpu_job_timedout(struct drm_sched_job *s_job)
 			 s_job->s_fence->finished.seqno,
 			 fence->context, fence->seqno);
 
+#ifdef CONFIG_DEBUG_FS
 		SGPU_LOG(adev, DMSG_INFO, DMSG_ETC,
 				"%s: job_id %lld num_ibs %d FENCE drm %lld/%lld/%lld sgpu %lld/%lld\n",
 				ring->name, s_job->id,
@@ -102,7 +105,7 @@ static enum drm_gpu_sched_stat amdgpu_job_timedout(struct drm_sched_job *s_job)
 				s_job->s_fence->finished.context,
 				s_job->s_fence->finished.seqno,
 				fence->context, fence->seqno);
-
+#endif
 		ring->funcs->check_ring_done(ring);
 	}
 #if IS_ENABLED(CONFIG_SEC_ABC)
@@ -426,12 +429,14 @@ static void amdgpu_job_free_cb(struct drm_sched_job *s_job)
 		amdgpu_sws_put_tmz_queue(ring->sws_ctx.ctx,
 					 &job->base.s_fence->finished);
 
+#ifdef CONFIG_DEBUG_FS
 	SGPU_LOG(adev, DMSG_INFO, DMSG_ETC,
 		 "ring=%s, job-id=%d: vmid=%u, pasid=%u, drm %llu/%llu/%llu",
 		 ring->name, job->base.id, job->vmid, job->pasid,
 		 job->base.s_fence->scheduled.context,
 		 job->base.s_fence->finished.context,
 		 job->base.s_fence->finished.seqno);
+#endif
 
 	drm_sched_job_cleanup(s_job);
 

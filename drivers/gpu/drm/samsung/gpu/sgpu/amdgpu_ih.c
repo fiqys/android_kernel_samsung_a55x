@@ -190,8 +190,10 @@ int amdgpu_ih_process(struct amdgpu_device *adev, struct amdgpu_ih_ring *ih)
 	 */
 	reg = readl(adev->pm.pmu_mmio + BG3D_PWRCTL_STATUS_OFFSET);
 	if ((reg & BG3D_PWRCTL_STATUS_GPU_READY_MASK) == 0) {
+#ifdef CONFIG_DEBUG_FS
 		SGPU_LOG(adev, DMSG_INFO, DMSG_ETC,
 			"ISR Skip : BG3D_PWRCTL_STATUS_OFFSET = %#010x", reg);
+#endif
 		return IRQ_HANDLED;
 	}
 
