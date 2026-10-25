@@ -714,9 +714,11 @@ int cal_if_init(void *dev)
 
 	cal_initialized = 1;
 
+#if defined(CONFIG_DEBUG_FS)
 	vclk_debug_init();
 
 	pmucal_dbg_debugfs_init();
+#endif
 
 	return 0;
 }
