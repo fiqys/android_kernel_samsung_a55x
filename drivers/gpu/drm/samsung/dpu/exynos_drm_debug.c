@@ -955,6 +955,7 @@ int dpu_init_debug(struct exynos_drm_crtc *exynos_crtc)
 	crtc = &exynos_crtc->base;
 	d = &exynos_crtc->d;
 
+#ifdef CONFIG_DEBUG_FS
 	debugfs_create_file("err_event", 0664, crtc->debugfs_entry, exynos_crtc,
 			&dpu_err_event_fops);
 
@@ -969,6 +970,7 @@ int dpu_init_debug(struct exynos_drm_crtc *exynos_crtc)
 
 	debugfs_create_file("sfr_dma_en", 0644, crtc->debugfs_entry, exynos_crtc,
 			&sfr_mode_fops);
+#endif
 
 	d->df_mif_idx = exynos_crtc->bts->df_mif_idx;
 	d->df_int_idx = exynos_crtc->bts->df_int_idx;
