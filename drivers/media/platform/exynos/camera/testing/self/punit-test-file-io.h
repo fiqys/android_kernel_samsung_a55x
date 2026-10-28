@@ -73,7 +73,15 @@ struct pablo_self_test_file_io {
 };
 
 struct pablo_self_test_file_io *get_pst_fio(void);
+
+#if IS_ENABLED(CONFIG_DEBUG_FS)
 int pablo_self_test_file_io_probe(void);
+#else
+static inline int pablo_self_test_file_io_probe(void)
+{
+	return 0;
+}
+#endif
 
 void pst_blob_inject(enum pst_blob_node node, struct is_priv_buf *pb);
 void pst_blob_dump(enum pst_blob_node node, struct is_priv_buf *pb);

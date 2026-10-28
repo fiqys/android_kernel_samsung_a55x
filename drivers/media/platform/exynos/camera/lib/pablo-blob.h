@@ -52,8 +52,21 @@ int pablo_blob_pd_dump(struct pablo_blob_pd *blob_pd, struct is_frame *frame, co
 		       ...);
 int pablo_blob_pd_probe(struct dentry *root, struct pablo_blob_pd **blob_pd);
 void pablo_blob_pd_remove(struct pablo_blob_pd **blob_pd);
+#if IS_ENABLED(CONFIG_DEBUG_FS)
 int pablo_blob_debugfs_create_dir(const char *root_name, struct dentry **root);
 void pablo_blob_debugfs_remove(struct dentry *root);
+#else
+static inline int pablo_blob_debugfs_create_dir(const char *root_name, struct dentry **root)
+{
+	*root = NULL;
+	return 0;
+}
+
+static inline void pablo_blob_debugfs_remove(struct dentry *root)
+{
+	(void)root;
+}
+#endif
 
 #if IS_ENABLED(CONFIG_PABLO_KUNIT_TEST)
 struct pablo_kunit_blob_func {

@@ -31,6 +31,7 @@ struct pablo_self_test_file_io *get_pst_fio(void)
 	return &pst_fio;
 }
 
+#if IS_ENABLED(CONFIG_DEBUG_FS)
 static int pst_open_show(struct seq_file *buf, void *d)
 {
 	return 0;
@@ -76,6 +77,7 @@ int pablo_self_test_file_io_probe(void)
 
 	return 0;
 }
+#endif
 
 static size_t pst_get_blob_size(enum pst_blob_node node)
 {

@@ -343,6 +343,7 @@ void pablo_blob_pd_remove(struct pablo_blob_pd **blob_pd)
 	*blob_pd = NULL;
 }
 
+#if IS_ENABLED(CONFIG_DEBUG_FS)
 int pablo_blob_debugfs_create_dir(const char *root_name, struct dentry **root)
 {
 	struct dentry *root_tmp;
@@ -362,6 +363,7 @@ void pablo_blob_debugfs_remove(struct dentry *root)
 {
 	debugfs_remove(root);
 }
+#endif
 
 #if IS_ENABLED(CONFIG_PABLO_KUNIT_TEST)
 static struct pablo_kunit_blob_func blob_func = {
