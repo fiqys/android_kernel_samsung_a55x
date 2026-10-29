@@ -470,10 +470,6 @@ static int npu_init_iomem_area(struct npu_system *system)
 			mt->area_info->size = (iomem_data + i)->size;
 			probe_info("Flags[%08x], DVA[%08x], SIZE[%08x]",
 				(iomem_data + i)->vaddr, (iomem_data + i)->paddr, (iomem_data + i)->size);
-#if !IS_ENABLED(CONFIG_DEBUG_FS)
-			if (!strcmp(heap_name, "fwunittest"))
-				goto common1;
-#endif
 			ret = npu_memory_alloc_from_heap(system->pdev, mt->area_info,
 					(iomem_data + i)->paddr, &system->memory, mt->heapname, (iomem_data + i)->vaddr);
 			if (ret) {
@@ -490,9 +486,6 @@ static int npu_init_iomem_area(struct npu_system *system)
 				ret = -EFAULT;
 				goto err_data;
 			}
-#if !IS_ENABLED(CONFIG_DEBUG_FS)
-common1:
-#endif
 			probe_info("%s : daddr[%08x], [%08x] alloc memory\n",
 					iomem_name, (iomem_data + i)->paddr, (iomem_data + i)->size);
 

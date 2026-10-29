@@ -106,7 +106,9 @@ static int npu_iommu_fault_handler(struct iommu_fault *fault, void *token)
 
 	if (test_bit(NPU_DEVICE_STATE_OPEN, &device->state)) {
 		npu_err("called with state(%pK))\n", &device->state);
+#if IS_ENABLED(CONFIG_DEBUG_FS)
 		npu_util_dump_handle_error_k(device);
+#endif
 	}
 
 	return 0;
