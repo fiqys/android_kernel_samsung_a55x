@@ -124,6 +124,45 @@ int set_light_brightness(struct light_data *data)
 	return ret;
 }
 
+int inject_light_brightness(int32_t brightness)
+{
+	struct shub_sensor *sensor = get_sensor(SENSOR_TYPE_LIGHT);
+	struct light_data *data;
+	int cur_level = 0;
+	int cal_brightness;
+	int i, ret = 0;
+
+	if (!sensor || !sensor->data)
+		return -ENODEV;
+
+	// shub_errf("br %d, cal_br %d", brightness, cal_brightness);
+	// set current level for changing itime
+	data = sensor->data;
+	cal_brightness = brightness / 10 * 10;
+
+	for (i = 0; i < data->brightness_array_len; i++) {
+		if (brightness <= data->brightness_array[i]) {
+			cur_level = i + 1;
+			// shub_infof("brightness %d <= %d , level %d", brightness, data->brightness_array[i],
+			// cur_level);
+			break;
+		}
+	}
+
+	if (data->last_brightness_level != cur_level) {
+		data->brightness = brightness;
+		data->last_brightness_level = cur_level;
+		ret = set_light_brightness(data);
+		data->brightness = cal_brightness;
+	} else if (data->brightness != cal_brightness) {
+		data->brightness = brightness;
+		ret = set_light_brightness(data);
+		data->brightness = cal_brightness;
+	}
+
+	return ret;
+}
+
 #ifdef CONFIG_SENSORS_SSP_LIGHT_JPNCONCEPT
 int set_light_region(struct light_data *data)
 {
@@ -269,10 +308,8 @@ void print_light_debug(void)
 
 int inject_light_additional_data(char *buf, int count)
 {
-	int cur_level = 0;
-	int cal_brightness = 0;
 	int32_t brightness;
-	int i, ret = 0;
+	int ret = 0;
 	struct light_data *data = get_sensor(SENSOR_TYPE_LIGHT)->data;
 
 	if (count < 1) {
@@ -290,31 +327,7 @@ int inject_light_additional_data(char *buf, int count)
 		data->hbm_finger = finger_print;
 	} else if (count == sizeof(int32_t)) {
 		brightness = *((int32_t *)(buf));
-		cal_brightness = brightness / 10;
-		cal_brightness *= 10;
-
-		// shub_errf("br %d, cal_br %d", brightness, cal_brightness);
-		// set current level for changing itime
-		for (i = 0; i < data->brightness_array_len; i++) {
-			if (brightness <= data->brightness_array[i]) {
-				cur_level = i + 1;
-				// shub_infof("brightness %d <= %d , level %d", brightness, data->brightness_array[i],
-				// cur_level);
-				break;
-			}
-		}
-
-		if (data->last_brightness_level != cur_level) {
-			data->brightness = brightness;
-			// update last level
-			data->last_brightness_level = cur_level;
-			ret = set_light_brightness(data);
-			data->brightness = cal_brightness;
-		} else if (data->brightness != cal_brightness) {
-			data->brightness = brightness;
-			ret = set_light_brightness(data);
-			data->brightness = cal_brightness;
-		}
+		ret = inject_light_brightness(brightness);
 	} else if (count == sizeof(int32_t)*4) {
 		int32_t data[4] = {0,};
 
