@@ -276,7 +276,7 @@ static int panel_notifier_callback(struct notifier_block *nb, unsigned long even
 			shub_infof("PANEL_EVENT_PANEL_STATE_CHANGED, event(%d) lcd_status(%d)\n",
 							evtdata->state, shub_data->lcd_status);
 
-			//shub_send_status(get_lcd_status());
+			shub_send_status(get_lcd_status());
 		}
 	} else if (event == PANEL_EVENT_COPR_STATE_CHANGED) {
 		if (evtdata->state == PANEL_EVENT_COPR_STATE_ENABLED
@@ -333,6 +333,7 @@ void sync_panel_state(void)
 
 	send_ub_state();
 	send_copr_state();
+	shub_send_status(get_lcd_status());
 
 	for (i = 0; i < PANEL_MAX; i++)
 	{
