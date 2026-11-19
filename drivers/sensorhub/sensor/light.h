@@ -81,6 +81,7 @@ struct light_data {
 };
 
 void set_light_ddi_support(uint32_t system_feature);
+int inject_light_brightness(int32_t brightness);
 
 
 /* light sub command */

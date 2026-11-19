@@ -248,6 +248,7 @@ static int panel_notifier_callback(struct notifier_block *nb, unsigned long even
 		if (panel_event_data[evtdata->display_index].level != evtdata->d.bl.level) {
 			// store these values for reset
 			memcpy(&panel_event_data[index], &evtdata->d.bl, sizeof(struct panel_event_bl_data));
+			inject_light_brightness(evtdata->d.bl.level);
 			shub_infof("PANEL_EVENT_BL_STATE_CHANGED, level(%d) aor(%d) acl_status(%d) acl_val(%d) resolution(%d)\n",
 							evtdata->d.bl.level, evtdata->d.bl.aor, evtdata->d.bl.acl_status, evtdata->d.bl.gradual_acl_val, brightness_resolution);
 			send_panel_information(index, &evtdata->d.bl);
@@ -337,8 +338,10 @@ void sync_panel_state(void)
 
 	for (i = 0; i < PANEL_MAX; i++)
 	{
-		if (panel_event_data[i].level != -1)
+		if (panel_event_data[i].level != -1) {
+			inject_light_brightness(panel_event_data[i].level);
 			send_panel_information(i, &panel_event_data[i]);
+		}
 		send_screen_mode_information(i, panel_screen_mode[i]);
 	}
 }
