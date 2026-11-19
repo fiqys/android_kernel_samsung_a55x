@@ -493,7 +493,7 @@ int init_sensorhub_device(void)
 	}
 
 	shub_data->pm_status = PM_COMPLETE;
-	shub_data->lcd_status = LCD_OFF;
+	shub_data->lcd_status = LCD_ON;
 
 	shub_data->shub_wq = create_singlethread_workqueue("shub_dev_wq");
 	if (!shub_data->shub_wq)
