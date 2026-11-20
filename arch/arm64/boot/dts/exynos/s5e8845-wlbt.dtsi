@@ -68,4 +68,15 @@
 		samsung,qos_level_medium = <3>;
 		samsung,qos_level_high = <6>;
 	};
+
+	scsc_wondertap: scsc-wondertap {
+		compatible = "samsung,scsc-wondertap-driver";
+		status = "okay";
+	};
+
+	wonder {
+		compatible = "google,wonder-drv-v1";
+		wondertap-provider = <&scsc_wondertap>;
+		status = "okay";
+	};
 };

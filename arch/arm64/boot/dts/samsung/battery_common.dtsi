@@ -516,7 +516,7 @@
 	};
 };
 
-/* /home/dpi/qb5_8814/workspace/P4_1716/android/kernel/kmodule/battery/suwon/common/dts/a55x/battery_common.dtsi */
+/* /home/dpi/qb5_8815/workspace/P4_1716/android/kernel/kmodule/battery/suwon/common/dts/a55x/battery_common.dtsi */
 #include <dt-bindings/battery/sec-battery.h>
 
 #define MAX_FV 4450
@@ -696,4 +696,4 @@
 	};
 };
 
-/* /home/dpi/qb5_8814/workspace/P4_1716/android/kernel/kmodule/battery/suwon/common/dts/a55x/battery_common.01.dtsi */
+/* /home/dpi/qb5_8815/workspace/P4_1716/android/kernel/kmodule/battery/suwon/common/dts/a55x/battery_common.01.dtsi */
