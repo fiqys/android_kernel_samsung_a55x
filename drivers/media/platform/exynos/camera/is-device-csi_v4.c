@@ -1664,7 +1664,7 @@ static void csi_err_print(struct is_device_csi *csi)
 		}
 	}
 
-	if (err_report)
+	if (err_report && !test_bit(IS_SENSOR_STREAM_OFF, &device->state))
 		is_vendor_csi_err_handler(device->position);
 }
 

@@ -326,13 +326,15 @@ static void __mfc_handle_frame_all_extracted(struct mfc_core *core,
 				V4L2_CID_MPEG_VIDEO_H264_SEI_FP_AVAIL, 0);
 		}
 
-		mutex_lock(&dec->dpb_mutex);
+		if (!ctx->plugin_type) {
+			mutex_lock(&dec->dpb_mutex);
 
-		index = dst_mb->dpb_index;
-		dec->dpb[index].queued = 0;
-		clear_bit(index, &dec->queued_dpb);
+			index = dst_mb->dpb_index;
+			dec->dpb[index].queued = 0;
+			clear_bit(index, &dec->queued_dpb);
 
-		mutex_unlock(&dec->dpb_mutex);
+			mutex_unlock(&dec->dpb_mutex);
+		}
 
 		vb2_buffer_done(&dst_mb->vb.vb2_buf, VB2_BUF_STATE_DONE);
 		mfc_debug(2, "[DPB] Cleand up index = %d, used_flag = %#lx, queued = %#lx\n",
@@ -345,7 +347,10 @@ static void __mfc_handle_frame_all_extracted(struct mfc_core *core,
 	mfc_handle_force_change_status(core_ctx);
 	mfc_debug(2, "After cleanup\n");
 
-	mfc_cleanup_iovmm_except_used(ctx);
+	if (ctx->plugin_type)
+		mfc_rm_request_work(ctx->dev, MFC_WORK_CHANGE_STATE, ctx);
+	else
+		mfc_cleanup_iovmm_except_used(ctx);
 	mfc_print_dpb_table(ctx);
 }
 
@@ -517,7 +522,7 @@ static struct mfc_buf *__mfc_handle_frame_output_del(struct mfc_core *core,
 			(IS_AV1_DEC(ctx) && mfc_core_get_disp_res_change_av1())) {
 			mfc_ctx_info("[FRAME][DRC] display resolution changed\n");
 			mutex_lock(&ctx->drc_wait_mutex);
-			ctx->wait_state = WAIT_G_FMT;
+			ctx->wait_state |= WAIT_G_CROP;
 			mfc_core_get_img_size(core, ctx, MFC_GET_RESOL_SIZE);
 			mfc_set_mb_flag(dst_mb, MFC_FLAG_DISP_RES_CHANGE);
 			mutex_unlock(&ctx->drc_wait_mutex);
@@ -526,7 +531,7 @@ static struct mfc_buf *__mfc_handle_frame_output_del(struct mfc_core *core,
 		if (mfc_core_get_crop_info_change()) {
 			mfc_ctx_info("[FRAME][DRC] crop info changed\n");
 			mutex_lock(&ctx->drc_wait_mutex);
-			ctx->wait_state = WAIT_G_FMT;
+			ctx->wait_state |= WAIT_G_CROP;
 			mfc_core_dec_get_crop_info(core, ctx);
 			mfc_set_mb_flag(dst_mb, MFC_FLAG_DISP_RES_CHANGE);
 			dec->disp_drc.disp_crop_change = 1;
@@ -908,9 +913,6 @@ static inline void __mfc_handle_error(struct mfc_core *core, struct mfc_ctx *ctx
 		/* This error had to happen while releasing instance */
 	case MFCINST_DPB_FLUSHING:
 		/* This error had to happen while flushing DPB */
-	case MFCINST_SPECIAL_PARSING:
-	case MFCINST_SPECIAL_PARSING_NAL:
-		/* This error had to happen while special parsing */
 		break;
 	case MFCINST_HEAD_PARSED:
 		/* This error had to happen while setting dst buffers */
@@ -1703,14 +1705,6 @@ static inline int __mfc_handle_done_frame(struct mfc_core *core,
 			call_dop(core, dump_regs, core);
 			core_ctx->check_dump = 1;
 		}
-		if (core_ctx->state == MFCINST_SPECIAL_PARSING_NAL) {
-			mfc_core_clear_int();
-			mfc_core_pm_clock_off(core, 1);
-			core->sched->clear_work(core, core_ctx);
-			mfc_change_state(core_ctx, MFCINST_RUNNING);
-			mfc_wake_up_core_ctx(core_ctx, reason, err);
-			return 0;
-		}
 		__mfc_handle_frame(core, ctx, reason, err);
 	} else if (ctx->type == MFCINST_ENCODER) {
 		if (core->dev->debugfs.sfr_dump & MFC_DUMP_ENC_FRAME_DONE) {
@@ -1927,7 +1921,7 @@ static int __mfc_handle_seq_dec(struct mfc_core *core, struct mfc_ctx *ctx)
 		mfc_debug(2, "[INTERLACE] interlace: %d, mbaff: %d\n",
 				is_interlace, dec->is_mbaff);
 
-		if (dev->pdata->support_sbwc && (core_ctx->state != MFCINST_SPECIAL_PARSING)) {
+		if (dev->pdata->support_sbwc) {
 			ctx->is_sbwc = mfc_core_is_sbwc_avail();
 			__mfc_check_sbwc_constraint(core, ctx);
 			MFC_TRACE_CORE_CTX("*** is_sbwc %d\n", ctx->is_sbwc);

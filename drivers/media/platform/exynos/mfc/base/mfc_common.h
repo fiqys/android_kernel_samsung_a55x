@@ -197,11 +197,17 @@
 #define CODEC_422FORMAT(ctx)	(IS_HEVC_DEC(ctx) || IS_HEVC_ENC(ctx) ||	\
 				IS_VP9_DEC(ctx) || IS_VP9_ENC(ctx) ||		\
 				IS_BPG_DEC(ctx) || IS_BPG_ENC(ctx))
-#define ON_RES_CHANGE(ctx)	(((ctx)->state >= MFCINST_RES_CHANGE_INIT) &&	\
-				 ((ctx)->state <= MFCINST_RES_CHANGE_END))
+#define ON_RES_CHANGE(core_ctx)	(((core_ctx)->state >= MFCINST_RES_CHANGE_INIT) &&	\
+				((core_ctx)->state < MFCINST_RES_CHANGE_END))
+#define ON_RUNNING(ctx)		((ctx)->state == MFCINST_RUNNING)
+#define NEED_TO_DPB_FLUSH(ctx)	(((ctx)->state == MFCINST_FINISHING) ||		\
+	((ctx)->state == MFCINST_RUNNING) || ((ctx)->state == MFCINST_RES_CHANGE_END))
+#define NEED_TO_WAIT_NAL_ABORT(ctx)	((ctx)->state == MFCINST_ABORT_INST)
+#define NEED_TO_GET_CROP(ctx)	(((ctx)->state == MFCINST_HEAD_PARSED) ||	\
+	((ctx)->state == MFCINST_RUNNING) || ((ctx)->state == MFCINST_FINISHING))
 #define IS_NO_ERROR(err)	((err) == 0 ||		\
 				(mfc_get_warn(err)	\
-				 == MFC_REG_ERR_SYNC_POINT_NOT_RECEIVED))
+				== MFC_REG_ERR_SYNC_POINT_NOT_RECEIVED))
 #define CODEC_HAS_IDR(ctx)	(IS_H264_DEC(ctx) || IS_H264_MVC_DEC(ctx) || IS_HEVC_DEC(ctx) ||  \
 				IS_H264_ENC(ctx) || IS_HEVC_ENC(ctx))
 
@@ -211,8 +217,9 @@
 	((IS_VP8_ENC(ctx) || IS_VP9_ENC(ctx)) && p->ivf_header_disable))
 
 #define HDR10_PLUS_ADDR(base, idx)	(base + ((idx) * HDR10_PLUS_DATA_SIZE))
-#define IS_NEED_BUTLER(ctx, core_ctx) (IS_TWO_MODE2(ctx) && (core_ctx->state == MFCINST_RUNNING)) || \
-				(!IS_SINGLE_MODE(ctx) && ON_RES_CHANGE(core_ctx))
+#define IS_MULTI_MODE_DRC(ctx, core_ctx) (!IS_SINGLE_MODE(ctx) && ON_RES_CHANGE(core_ctx))
+#define IS_NEED_BUTLER(ctx, core_ctx) ((IS_TWO_MODE2(ctx) && (core_ctx->state == MFCINST_RUNNING)) || \
+                               IS_MULTI_MODE_DRC(ctx, core_ctx))
 
 /*
  levels with maximum property values

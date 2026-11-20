@@ -210,7 +210,7 @@ static int mfc_enc_buf_prepare(struct vb2_buffer *vb)
 			}
 		}
 
-				mfc_calc_base_addr(ctx, vb, ctx->src_fmt);
+		mfc_calc_base_addr(ctx, vb, ctx->src_fmt);
 
 		call_cop(ctx, to_buf_ctrls, ctx, &ctx->src_ctrls[index]);
 

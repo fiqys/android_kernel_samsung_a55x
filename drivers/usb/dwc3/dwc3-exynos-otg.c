@@ -65,6 +65,8 @@ extern int is_otg_only;
 
 struct dwc3_exynos *g_dwc3_exynos;
 
+extern bool g_vbus_active;
+
 /* -------------------------------------------------------------------------- */
 #if defined(CONFIG_OTG_DEFAULT)
 struct intf_typec {
@@ -1014,6 +1016,7 @@ dwc3_otg_store_b_sess(struct device *dev,
 		return -EINVAL;
 	}
 
+	pr_info("%s: %d\n", __func__, b_sess_vld);
 #if IS_ENABLED(CONFIG_USB_NOTIFY_LAYER)
 	if (is_blocked(get_otg_notify(), NOTIFY_BLOCK_TYPE_CLIENT)) {
 		mutex_unlock(&fsm->lock);
@@ -1056,6 +1059,7 @@ dwc3_otg_store_id(struct device *dev,
 	if (!exynos->usb_data_enabled)
 		return NOTIFY_OK;
 
+	pr_info("%s: %d\n", __func__, id);
 #if IS_ENABLED(CONFIG_USB_NOTIFY_LAYER)
 	if (is_blocked(get_otg_notify(), NOTIFY_BLOCK_TYPE_HOST))
 		return -EINVAL;
@@ -1157,6 +1161,7 @@ static ssize_t usb_data_enabled_store(struct device *dev, struct device_attribut
 				      const char *buf, size_t n)
 {
 	struct dwc3_exynos *exynos = dev_get_drvdata(dev);
+	struct otg_fsm	*fsm = &exynos->dotg->fsm;
 	bool enabled = true;
 
 
@@ -1165,7 +1170,31 @@ static ssize_t usb_data_enabled_store(struct device *dev, struct device_attribut
 
 	exynos->usb_data_enabled = enabled;
 
-	pr_info(" Turn %s\n", enabled ? "on" : "off");
+#if IS_ENABLED(CONFIG_USB_NOTIFY_LAYER)
+	if (is_blocked(get_otg_notify(), NOTIFY_BLOCK_TYPE_CLIENT) || is_blocked(get_otg_notify(), NOTIFY_BLOCK_TYPE_HOST))
+		return NOTIFY_OK;
+#endif
+	if (enabled) {
+		if (g_vbus_active) {
+			/* Device mode: sync b_sess_vld from vbus_active */
+			if (fsm->b_sess_vld != g_vbus_active) {
+				mutex_lock(&fsm->lock);
+				fsm->b_sess_vld = g_vbus_active;
+				mutex_unlock(&fsm->lock);
+				dwc3_otg_run_sm(fsm);
+			}
+		} else if (exynos->id_active) {
+			/* Host mode: sync fsm->id from id_active */
+			if (fsm->id) {
+				mutex_lock(&fsm->lock);
+				fsm->id = 0;
+				mutex_unlock(&fsm->lock);
+				dwc3_otg_run_sm(fsm);
+			}
+		}
+	}
+
+	pr_info("%s Turn %s\n", __func__, enabled ? "on" : "off");
 	return n;
 }
 static DEVICE_ATTR_RW(usb_data_enabled);

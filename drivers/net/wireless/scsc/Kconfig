@@ -469,4 +469,31 @@ config SCSC_WLAN_OCE
 	default n
 	help
 	  This option enables OCE support in driver
+
+config SCSC_WLAN_WONDERTAP
+	int "Enable wondertap (wonder API version, MMmmpp; 0 = disabled)"
+	depends on SOC_S5E9945 || SOC_S5E8845
+	range 0 19999
+	default 10604
+	help
+	  Single switch for the wondertap vendor backend. Values are encoded
+          as wonder API version major*10000 + minor*100 + patch:
+
+              0     - wondertap disabled (no code compiled in)
+              10500 - v1.5     (baseline, default)
+              10501 - v1.5.1
+              10601 - v1.6.1 / v1.6.2 / v1.6.3 (aliased in wonder enum)
+              10604 - v1.6.4
+
+          Source code uses `#if CONFIG_SCSC_WLAN_WONDERTAP` for the
+          enable/disable gate, and `#if CONFIG_SCSC_WLAN_WONDERTAP >=
+          SLSI_WONDER_API_V1_6_4` (see slsi_wondertap.h) to opt into the
+          newer ops contract.
+
+          v1.6.4 adds four new vendor callbacks (channel_schedule_request,
+          get_mac_tsf, get_channel_status_report, set_station_info),
+          changes the layout of wondertap_tx_rate_mask_params, and extends
+          wondertap_init_params and wondertap_capability. The new callbacks
+          are stubbed (return -EOPNOTSUPP) until the FW-side protocol is
+          finalised.
 endif

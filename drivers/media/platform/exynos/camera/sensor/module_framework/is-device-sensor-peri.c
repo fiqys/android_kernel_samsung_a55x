@@ -1301,6 +1301,7 @@ void is_sensor_long_term_mode_set_work(struct work_struct *data)
 
 	/* Sensor stream off */
 	mutex_lock(&sensor_peri->cis.stream_off_lock);
+	set_bit(IS_SENSOR_STREAM_OFF, &device->state);
 	ret = CALL_CISOPS(cis, cis_stream_off, subdev_cis);
 	if (ret < 0) {
 		err("[%s] stream off fail", __func__);
@@ -1338,6 +1339,7 @@ void is_sensor_long_term_mode_set_work(struct work_struct *data)
 
 	/* Sensor stream on */
 	ret = CALL_CISOPS(cis, cis_stream_on, subdev_cis);
+	clear_bit(IS_SENSOR_STREAM_OFF, &device->state);
 	if (ret < 0) {
 		err("[%s] stream on fail\n", __func__);
 		return;
@@ -1973,6 +1975,7 @@ int is_sensor_peri_s_stream(struct is_device_sensor *device,
 			err("[%s]: sensor cis_recover_stream_on test end %d", __func__, ret);
 		} else {
 			ret = CALL_CISOPS(cis, cis_stream_on, subdev_cis);
+			clear_bit(IS_SENSOR_STREAM_OFF, &device->state);
 		}
 
 		if (ret < 0) {
@@ -2038,6 +2041,7 @@ int is_sensor_peri_s_stream(struct is_device_sensor *device,
 		if (cis->dual_sync_work_mode != DUAL_SYNC_STREAMOFF) {
 			mutex_lock(&cis->stream_off_lock);
 			CALL_CISOPS(cis, cis_wait_seamless_update_delay, subdev_cis);
+			set_bit(IS_SENSOR_STREAM_OFF, &device->state);
 			ret = CALL_CISOPS(cis, cis_stream_off, subdev_cis);
 			mutex_unlock(&cis->stream_off_lock);
 		}

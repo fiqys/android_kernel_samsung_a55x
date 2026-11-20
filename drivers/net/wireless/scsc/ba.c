@@ -42,9 +42,24 @@ MODULE_PARM_DESC(ba_out_of_range_delba_enable, "Option to trigger DELBA on out o
 		__ba_session_rx->buffer[__index].active = false; \
 	}
 
-void slsi_rx_ba_init(struct slsi_dev *sdev)
+int slsi_rx_ba_init(struct slsi_dev *sdev)
 {
+	sdev->rx_ba_buffer_pool = vmalloc(sizeof(struct slsi_ba_session_rx) * SLSI_MAX_RX_BA_SESSIONS);
+	if (!sdev->rx_ba_buffer_pool) {
+		SLSI_ERR(sdev, "failed to vmalloc memory! \n");
+		return  -ENOMEM;
+	}
+
 	slsi_spinlock_create(&sdev->rx_ba_buffer_pool_lock);
+	return 0;
+}
+
+void slsi_rx_ba_deinit(struct slsi_dev *sdev)
+{
+	if (sdev->rx_ba_buffer_pool) {
+		vfree(sdev->rx_ba_buffer_pool);
+		sdev->rx_ba_buffer_pool = NULL;
+	}
 }
 
 static struct slsi_ba_session_rx *slsi_rx_ba_alloc_buffer(struct net_device *dev)
@@ -233,9 +248,24 @@ static int ba_consume_frame_or_get_buffer_index(struct net_device *dev, struct s
 		if (!ba_session_rx->trigger_ba_after_ssn)
 			ba_session_rx->trigger_ba_after_ssn = true;
 
-		sn_temp = ba_session_rx->expected_sn + ba_session_rx->buffer_size;
 		SLSI_NET_DBG4(dev, SLSI_RX_BA, "New frame: sn=%d\n", sn);
 
+		/* If driver gets MSDU with SN == SSN or window start advances past SSN,
+		 * driver stops remembering last SN passed to upper layers and stops applying
+		 * additional checks
+		 */
+		if (ba_session_rx->last_sn_check) {
+			if (sn == ba_session_rx->start_sn) {
+				SLSI_NET_DBG4(dev, SLSI_RX_BA, "stop last SN check: tid=%d, sn=%d, ssn=%d\n", ba_session_rx->tid, sn, ba_session_rx->start_sn);
+				ba_session_rx->last_sn_check = false;
+			}
+			if (((ba_session_rx->expected_sn - ba_session_rx->start_sn) & 0xFFF) > ba_session_rx->buffer_size) {
+				SLSI_NET_DBG4(dev, SLSI_RX_BA, "stop last SN check: tid=%d, sn=%d, expected_sn=%d, ssn=%d\n", ba_session_rx->tid, sn, ba_session_rx->expected_sn, ba_session_rx->start_sn);
+				ba_session_rx->last_sn_check = false;
+			}
+		}
+
+		sn_temp = ba_session_rx->expected_sn + ba_session_rx->buffer_size;
 		if (!(((sn - sn_temp) & 0xFFF) > BA_WINDOW_BOUNDARY)) {
 			u16 new_expected_sn;
 
@@ -245,6 +275,7 @@ static int ba_consume_frame_or_get_buffer_index(struct net_device *dev, struct s
 				*stop_timer = true;
 			new_expected_sn = (sn_temp + 1) & 0xFFF;
 			ba_update_expected_sn(dev, ba_session_rx, new_expected_sn);
+			ba_session_rx->last_sn_check = false;
 		}
 
 		i = -1;
@@ -254,7 +285,25 @@ static int ba_consume_frame_or_get_buffer_index(struct net_device *dev, struct s
 				*stop_timer = true;
 			ADVANCE_EXPECTED_SN(ba_session_rx);
 			ba_add_frame_to_ba_complete(dev, ba_session_rx, frame_desc);
+			ba_session_rx->last_sn_check = false;
 		} else {
+			if (ba_session_rx->last_sn_check) {
+				u16 new_expected_sn;
+				u16 last_sn = peer->last_sn[ba_session_rx->tid];
+
+				/* if driver gets MSDU with SN == last SN passed to upper layers + 1 then
+				 * driver passes to upper layers and updates last SN passed to upper layers
+				 */
+				SLSI_NET_DBG4(dev, SLSI_RX_BA, "last SN check: sn = %d, last_sn = %d\n", sn, last_sn);
+				if (sn == ((last_sn + 1) & 0xFFF)) {
+					SLSI_NET_DBG4(dev, SLSI_RX_BA, "last SN check: sn == last_sn + 1\n");
+					new_expected_sn = ((sn + 1) & 0xFFF);
+					ba_update_expected_sn(dev, ba_session_rx, new_expected_sn);
+					ba_add_frame_to_ba_complete(dev, ba_session_rx, frame_desc);
+					peer->last_sn[ba_session_rx->tid] = sn;
+					return -1;
+				}
+			}
 			i = SN_TO_INDEX(ba_session_rx, sn);
 			SLSI_NET_DBG4(dev, SLSI_RX_BA, "sn (%d) != ba_session_rx->expected_sn(%d), i = %d\n", sn, ba_session_rx->expected_sn, i);
 			if (ba_session_rx->buffer[i].active) {
@@ -468,6 +517,7 @@ int slsi_ba_process_frame(struct net_device *dev, struct slsi_peer *peer,
 	frame_desc.tid = tid;
 	frame_desc.sn = sequence_number;
 	frame_desc.active = true;
+	frame_desc.is_ciphered = ((struct slsi_skb_cb *)skb->cb)->is_ciphered;
 	slsi_ba_replay_get_pn(dev, peer, skb, &frame_desc);
 
 	i = ba_consume_frame_or_get_buffer_index(dev, peer, ba_session_rx, sequence_number, &frame_desc, &stop_timer);
@@ -530,6 +580,14 @@ int slsi_ba_process_frame(struct net_device *dev, struct slsi_peer *peer,
 	}
 	slsi_ba_signal_process_complete(dev);
 	return 0;
+}
+
+void slsi_ba_store_sn(struct net_device *dev, struct slsi_peer *peer, u16 tid, u16 sn)
+{
+	if (tid <= FAPI_PRIORITY_QOS_UP7) {
+		SLSI_NET_DBG4(dev, SLSI_RX_BA, "store: tid=%d sn=%d\n", tid, sn);
+		peer->last_sn[tid] = sn;
+ 	}
 }
 
 bool slsi_ba_check(struct slsi_peer *peer, u16 tid)
@@ -644,6 +702,7 @@ static int slsi_rx_ba_start(struct net_device *dev,
 	ba_session_rx->expected_sn = start_sn;
 	ba_session_rx->highest_received_sn = 0;
 	ba_session_rx->closing = false;
+	ba_session_rx->last_sn_check = true;
 	ba_session_rx->trigger_ba_after_ssn = false;
 	ba_session_rx->tid = tid;
 	ba_session_rx->timer_on = false;

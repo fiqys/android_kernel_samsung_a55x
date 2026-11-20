@@ -1614,6 +1614,7 @@ static int slsi_start_keepalive_offload(struct wiphy *wiphy, struct wireless_dev
 	int                      type;
 	const struct nlattr      *attr;
 	u16 ip_pkt_len = 0;
+	u16 ip_pkt_size = 0;
 	u8 *ip_pkt = NULL, *src_mac_addr = NULL, *dst_mac_addr = NULL;
 	u32 period = 0;
 	struct slsi_peer *peer;
@@ -1667,6 +1668,7 @@ static int slsi_start_keepalive_offload(struct wiphy *wiphy, struct wireless_dev
 				 r = -EINVAL;
 				 goto exit;
 			}
+			ip_pkt_size = nla_len(attr);
 			ip_pkt = (u8 *)nla_data(attr);
 			break;
 
@@ -1743,8 +1745,14 @@ static int slsi_start_keepalive_offload(struct wiphy *wiphy, struct wireless_dev
 	if (src_mac_addr)
 		SLSI_ETHER_COPY(ehdr->h_source, src_mac_addr);
 	ehdr->h_proto = cpu_to_be16(ETH_P_IP);
-	if (ip_pkt)
+	if (ip_pkt && (ip_pkt_size >= ip_pkt_len)) {
 		memcpy(skb_put(skb, ip_pkt_len), ip_pkt, ip_pkt_len);
+	} else {
+		kfree_skb(skb);
+		r = -EINVAL;
+		goto exit;
+	}
+
 
 	skb->dev = net_dev;
 	skb->protocol = ETH_P_IP;

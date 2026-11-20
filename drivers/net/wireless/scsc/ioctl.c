@@ -6170,7 +6170,7 @@ int slsi_set_bss_bandwidth(struct net_device *dev, char *command, int cmd_len)
 		return -EIO;
 	}
 
-	fapi_set_u16(req, u.mlme_set_bss_max_channel_width_req.protection_scope, protection_scope);
+	fapi_set_u16(req, u.mlme_set_bss_max_channel_width_req.reserved, protection_scope);
 	fapi_set_u16(req, u.mlme_set_bss_max_channel_width_req.channel_information, bandwidth);
 
 	cfm = slsi_mlme_req_cfm(sdev, dev, req, MLME_SET_BSS_MAX_CHANNEL_WIDTH_CFM);

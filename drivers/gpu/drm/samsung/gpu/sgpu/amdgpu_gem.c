@@ -364,16 +364,21 @@ retry:
 							    args2->data.tiling_info);
 	}
 
+	sgpu_swap_add_bo(fpriv, gem_to_amdgpu_bo(gobj));
+
 	r = drm_gem_handle_create(filp, gobj, &handle);
+
+	if (r) {
+		sgpu_swap_remove_bo(fpriv, gem_to_amdgpu_bo(gobj));
+		drm_gem_object_put(gobj);
+		return r;
+	}
+
 	/* drop reference from allocate - handle holds it now */
 	drm_gem_object_put(gobj);
-	if (r)
-		return r;
 
 	memset(args, 0, sizeof(*args));
 	args->out.handle = handle;
-
-	sgpu_swap_add_bo(fpriv, gem_to_amdgpu_bo(gobj));
 
 	return 0;
 }
@@ -387,6 +392,11 @@ static int amdgpu_gem_object_mmap(struct drm_gem_object *obj, struct vm_area_str
 		return -EPERM;
 	if (bo->flags & AMDGPU_GEM_CREATE_NO_CPU_ACCESS)
 		return -EPERM;
+
+	if (vma->vm_flags & VM_EXEC)
+		return -EPERM;
+
+	vm_flags_clear(vma, VM_MAYEXEC);
 
 	r = drm_gem_ttm_mmap(obj, vma);
 	/* in the case of non-cacheable pages set the pgprot appropriately */
@@ -822,6 +832,12 @@ int amdgpu_gem_va_ioctl(struct drm_device *dev, void *data,
 		goto error_unref;
 
 	if (abo) {
+		if (amdgpu_ttm_tt_is_readonly(abo->tbo.ttm) &&
+		    (args->flags & AMDGPU_VM_PAGE_WRITEABLE)) {
+                    dev_err(dev->dev, "Rejecting write access to read-only userptr BO");
+                    r = -EACCES;
+                    goto error_backoff;
+                }
 		bo_va = amdgpu_vm_bo_find(&fpriv->vm, abo);
 		if (!bo_va) {
 			r = -ENOENT;

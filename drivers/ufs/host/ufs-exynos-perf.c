@@ -444,6 +444,8 @@ void ufs_perf_exit(void *data)
 	unregister_pm_notifier(&perf->pm_nb);
 
 	if (perf && !IS_ERR(perf->handler)) {
+		kthread_stop(perf->handler);
+
 #if IS_ENABLED(CONFIG_EXYNOS_PM_QOS) || IS_ENABLED(CONFIG_EXYNOS_PM_QOS_MODULE)
 		exynos_pm_qos_remove_request(&perf->pm_qos_int);
 		exynos_pm_qos_remove_request(&perf->pm_qos_mif);
@@ -465,8 +467,6 @@ void ufs_perf_exit(void *data)
 			freq_qos_remove_request(&perf->pm_qos_cluster[policy->cpu]);
 #endif
 		}
-
-		kthread_stop(perf->handler);
 	}
 
 	devm_kfree(hba->dev, perf->pm_qos_cluster);

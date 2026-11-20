@@ -8,6 +8,7 @@
 #include <linux/interrupt.h>
 #include <linux/delay.h>
 #include <linux/workqueue.h>
+#include <linux/dma-mapping.h>
 #include <scsc/scsc_mx.h>
 #include <scsc/scsc_mifram.h>
 #include <linux/ktime.h>

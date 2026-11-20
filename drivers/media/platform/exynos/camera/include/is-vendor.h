@@ -259,6 +259,8 @@ void is_vendor_get_use_dualcal_file_from_position(int position, bool *use_dualca
 void is_vendor_get_dualcal_file_name_from_position(int position, char **dual_cal_file_name);
 int is_vendor_get_dualcal_param_from_file(struct device *dev, char **buf, int position, int *size);
 bool is_vendor_check_camera_running(int position);
+int is_vendor_get_sensor_id_from_position(int position);
+int is_vendor_get_dualized_sensorid(int position);
 #ifdef USE_TOF_AF
 void is_vendor_store_af(struct is_vendor *vendor, struct tof_data_t *data);
 #endif

@@ -11,7 +11,8 @@
 #define slsi_ba_replay_reset_pn(args...)	kunit_mock_slsi_ba_replay_reset_pn(args)
 
 
-static void kunit_mock_slsi_ba_replay_store_pn(struct net_device *dev, struct slsi_peer *peer, struct sk_buff *skb)
+static void kunit_mock_slsi_ba_replay_store_pn(struct net_device *dev, struct slsi_peer *peer, u16 tid, u16 sn,
+						       bool is_ciphered, const u8 *pn)
 {
 	return;
 }

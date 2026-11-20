@@ -47,6 +47,8 @@ int mfc_plugin_pm_init(struct mfc_core *core)
 
 	spin_lock_init(&core->pm.clklock);
 	atomic_set(&core->clk_ref, 0);
+	atomic_set(&core->pm.pwr_ref, 0);
+	atomic_set(&core->pm.protect_ref, 0);
 
 	core->pm.device = core->device;
 	core->pm.clock_on_steps = 0;
@@ -75,13 +77,23 @@ void mfc_plugin_pm_deinit(struct mfc_core *core)
 
 	state = atomic_read(&core->clk_ref);
 	if (state > 0) {
-		mfc_core_info("plugin clock is still enabled (%d)\n", state);
-		mfc_plugin_pm_clock_off(core);
+		for (; state > 0; state--) {
+			mfc_core_info("plugin clock is still enabled (%d)\n", state);
+			mfc_plugin_pm_clock_off(core);
+		}
 	}
 
 	if (!IS_ERR(core->pm.clock)) {
 		clk_unprepare(core->pm.clock);
 		clk_put(core->pm.clock);
+	}
+
+	state = atomic_read(&core->pm.pwr_ref);
+	if (state > 0) {
+		for (; state > 0; state--) {
+			mfc_core_info("plugin power is still enabled (%d)\n", state);
+			mfc_plugin_pm_power_off(core);
+		}
 	}
 
 	pm_runtime_disable(core->pm.device);

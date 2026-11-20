@@ -28,6 +28,8 @@
 
 struct is_vendor_private {
 	struct is_vendor_rom rom[ROM_ID_MAX];
+	struct is_vendor_rom dualized_rom[ROM_ID_MAX];
+	bool use_dualized_sensor[ROM_ID_MAX];
 	struct mutex rom_lock;
 
 	u32 sensor_id[SENSOR_POSITION_MAX];

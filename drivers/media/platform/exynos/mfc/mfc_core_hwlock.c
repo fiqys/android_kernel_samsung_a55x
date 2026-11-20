@@ -584,7 +584,6 @@ static int __mfc_just_run_dec(struct mfc_core *core, struct mfc_ctx *ctx)
 		ret = mfc_core_run_dec_last_frames(core, ctx);
 		break;
 	case MFCINST_RUNNING:
-	case MFCINST_SPECIAL_PARSING_NAL:
 		ret = mfc_core_run_dec_frame(core, ctx);
 		break;
 	case MFCINST_INIT:
@@ -594,7 +593,6 @@ static int __mfc_just_run_dec(struct mfc_core *core, struct mfc_ctx *ctx)
 		ret = mfc_core_cmd_close_inst(core, ctx);
 		break;
 	case MFCINST_GOT_INST:
-	case MFCINST_SPECIAL_PARSING:
 		ret = mfc_core_run_dec_init(core, ctx);
 		break;
 	case MFCINST_HEAD_PARSED:

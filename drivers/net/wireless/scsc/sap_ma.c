@@ -11,6 +11,7 @@
 #include "hip.h"
 #include "ba.h"
 #include "mgt.h"
+#include "utils.h"
 #include "nl80211_vendor.h"
 #include "hip4_sampler.h"
 #include "traffic_monitor.h"
@@ -32,7 +33,37 @@
 #include "local_packet_capture.h"
 #endif
 
+#ifdef CONFIG_SCSC_WLAN_WONDERTAP
+#include <wonder/wondertap.h>
+#include <net/ieee80211_radiotap.h>
+#endif
+
 #define SUPPORTED_OLD_VERSION   0
+
+/* Number of bytes of the last delayed RX packet to capture for debug. The
+ * backing buffer is MAX_LAST_DELAYD_PKT_SIZE; larger values are clamped.
+ */
+static uint dbg_last_delayd_pkt_capture_len = MAX_LAST_DELAYD_PKT_SIZE;
+module_param(dbg_last_delayd_pkt_capture_len, uint, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(dbg_last_delayd_pkt_capture_len,
+		 "Bytes of the last delayed RX packet to capture (max/default 86)");
+
+static bool wondertap_amsdu_deaggregate;
+module_param(wondertap_amsdu_deaggregate, bool, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(wondertap_amsdu_deaggregate, "deaggregate wondertap A-MSDU into per-subframe skbs, 1: deaggregate, 0: pass the whole A-MSDU up (default)");
+
+/* Only consulted when the A-MSDU is passed up whole (deaggregate=0, or a frame
+ * that cannot be deaggregated). Selects how the whole frame is delivered:
+ * frag_list intact (default) vs. copied into one linear jumbo skb.
+ */
+static bool wondertap_amsdu_linearize;
+module_param(wondertap_amsdu_linearize, bool, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(wondertap_amsdu_linearize, "when passing a whole A-MSDU up, copy it into one linear jumbo skb; 0: keep the RX frag_list intact (default), 1: linearize into a jumbo skb");
+
+/* Scratch buffer size for building an ethernet header view used by RX wakeup
+ * stats: ethhdr(14) + ipv6hdr(40) + icmp6hdr(8) rounded up.
+ */
+#define SLSI_WAKE_STATS_HDR_LEN 64
 
 static int sap_ma_version_supported(u16 version);
 static int sap_ma_rx_handler(struct slsi_dev *sdev, struct sk_buff *skb);
@@ -338,6 +369,55 @@ int slsi_rx_amsdu_deaggregate_gro(struct net_device *dev, struct sk_buff *skb, s
 	return 0;
 }
 
+static inline unsigned int skb_len(struct sk_buff *skb)
+{
+	return (unsigned int)(skb_tail_pointer(skb) - skb->data);
+}
+
+/**
+ * skb_put_data_frag - Copy data into msdu subframe from given skb
+ * @subframe: MSDU frame to be written
+ * @skb_pointer: Address of source skb
+ * @write_len: Length of the data to write
+ *
+ * This function copies a specified fragment from the source sk_buff into MSDU subframe
+ * which should passed to Upper layer. It handles both linear and non-linear (fragmented)
+ * skb data. When skb's length is not enough to handle write_len, skb is replaced with
+ * the next fragment (skb->next). Using sk_buf **skb_pointer, the skb replacement is valid
+ * even after the function returned.
+ *
+ * Return: 0 on success
+ *         -EINVAL on failure (when write_len is still left, but there is no more frag skb following)
+ */
+static int skb_put_data_frag(struct sk_buff *subframe, struct sk_buff **skb_pointer, unsigned int write_len)
+{
+	struct sk_buff *skb = *skb_pointer;
+
+	if (skb_len(skb) >= write_len) {
+		skb_put_data(subframe, skb->data, write_len);
+		skb_pull(skb, write_len);
+	} else {
+		write_len -= skb_len(skb);
+		skb_put_data(subframe, skb->data, skb_len(skb));
+
+		if (!skb->next)
+			return -EINVAL;
+		*skb_pointer = skb->next;
+
+		skb = *skb_pointer;
+		skb_put_data(subframe, skb->data, write_len);
+		skb_pull(skb, write_len);
+	}
+	return 0;
+}
+
+#ifdef CONFIG_SCSC_WLAN_WONDERTAP
+/* Radiotap fields: TSFT(8) + Flags(1) + pad(1) + Channel(4) + Signal(1) + Noise(1) + Antenna(1) */
+#define RADIOTAP_WONDERTAP_EXTRA_LEN (8 + 1 + 1 + 4 + 1 + 1 + 1)
+#define WONDER_DUMMY_FCS_LEN 4
+static int slsi_rx_wondertap_add_radiotap_header(struct net_device *dev, struct sk_buff **skb_pointer, s16 rssi, u32 timestamp, u8 *rtap_buf);
+#endif
+
 int slsi_rx_amsdu_deaggregate(struct net_device *dev, struct sk_buff *skb, struct sk_buff_head *msdu_list)
 {
 	struct slsi_skb_cb *skb_cb = slsi_skb_cb_get(skb);
@@ -349,6 +429,48 @@ int slsi_rx_amsdu_deaggregate(struct net_device *dev, struct sk_buff *skb, struc
 	struct ethhdr *mh = NULL;
 	bool discard;
 	bool is_last = false;
+
+#ifdef CONFIG_SCSC_WLAN_WONDERTAP
+	struct netdev_vif *ndev_vif = netdev_priv(dev);
+	unsigned char eth_buf[ETH_ALEN * 2 + 2] = { 0 };
+	struct sk_buff *skb_free_all = skb;
+	/* 802.11 header can be up to 36 bytes (4-addr + QoS + HT Control) */
+	struct fapi_signal *fapi_hdr = (struct fapi_signal *)(skb->data - skb_cb->sig_length);
+	s16 w_rssi = (s16)le16_to_cpu(fapi_hdr->u.ma_unitdata_ind.rssi);
+	u32 w_timestamp = le32_to_cpu(fapi_hdr->u.ma_unitdata_ind.timestamp);
+	int rtap_len = sizeof(struct ieee80211_radiotap_header) + RADIOTAP_WONDERTAP_EXTRA_LEN;
+	u8 hdr_buf[sizeof(struct ieee80211_hdr) + IEEE80211_QOS_CTL_LEN + IEEE80211_HT_CTL_LEN];
+	u8 rtap_buf[sizeof(struct ieee80211_radiotap_header) + RADIOTAP_WONDERTAP_EXTRA_LEN];
+	int hdrlen = 0;
+	int buf_len = 0;
+
+	if (ndev_vif->ifnum == SLSI_NET_INDEX_RELAY) {
+		struct ieee80211_hdr *hdr;
+
+		/* Prepend [radiotap] */
+		if (w_rssi > 0)
+			w_rssi -= 1;
+		else if (w_rssi < 0)
+			w_rssi += 1;
+		slsi_rx_wondertap_add_radiotap_header(dev, &skb, w_rssi, w_timestamp, rtap_buf);
+
+		hdr = (struct ieee80211_hdr *)skb->data;
+		hdrlen = ieee80211_hdrlen(hdr->frame_control);
+		buf_len = rtap_len + hdrlen;
+		memcpy(hdr_buf, hdr, hdrlen);
+		/* A-MSDU is a single MPDU carrying one sequence number. When we
+		 * deaggregate it into N subframes, the same 802.11 header (hence
+		 * the same SN) is copied onto every subframe below. If the source
+		 * MPDU was a retransmission (Retry=1), the far-end 802.11 duplicate
+		 * filter keys on (Addr2, TID, SN, Retry) and discards every subframe
+		 * after the first as a duplicate, punching a hole in the stream that
+		 * shows up as TCP dup-ACKs / retransmissions. Clear Retry on the
+		 * shared header copy so the subframes are not treated as duplicates.
+		 */
+		((struct ieee80211_hdr *)hdr_buf)->frame_control &= ~cpu_to_le16(IEEE80211_FCTL_RETRY);
+		skb_pull(skb, hdrlen);
+	}
+#endif
 
 	SLSI_NET_DBG4(dev, SLSI_RX, "A-MSDU received (len:%d)\n", skb->len);
 	while (skb->len) {
@@ -404,6 +526,95 @@ int slsi_rx_amsdu_deaggregate(struct net_device *dev, struct sk_buff *skb, struc
 		subframe_len = sizeof(struct ethhdr) + data_len;
 		discard = (skb_cb->discard & 0x1 ? true : false);
 		skb_cb->discard = skb_cb->discard >> 1;
+
+#ifdef CONFIG_SCSC_WLAN_WONDERTAP
+		if (ndev_vif->ifnum == SLSI_NET_INDEX_RELAY) {
+			/* handle last subframe */
+			if (skb->len == subframe_len + LLC_SNAP_HDR_LEN) {
+				if (discard) {
+					if (skb_has_frag_list(skb_free_all))
+						skb_free_all->next = NULL;
+					kfree_skb(skb_free_all);
+					return 0;
+				}
+
+				padding = 0;
+				is_last = true;
+			} else {
+				padding = (4 - (subframe_len % 4)) & 0x3;
+				if (discard) {
+					skb_pull(skb, LLC_SNAP_HDR_LEN + subframe_len + padding);
+					continue;
+				}
+			}
+
+			subframe = alloc_skb(buf_len + subframe_len + LLC_SNAP_HDR_LEN + WONDER_DUMMY_FCS_LEN,
+					     GFP_ATOMIC);
+			if (unlikely(!subframe)) {
+				SLSI_NET_ERR(dev, "[Wonder] failed to alloc the SKB for A-MSDU subframe\n");
+				__skb_queue_purge(msdu_list);
+				if (skb_has_frag_list(skb_free_all))
+					skb_free_all->next = NULL;
+				kfree_skb(skb_free_all);
+				return -ENOMEM;
+			}
+			/* Consume the 14 byte subframe header [Dst|Src|Len] so the payload
+			 * copy below starts at the LLC/SNAP, and keep the real Dst/Src MACs
+			 * in eth_buf for the wondertap subframe below.
+			 */
+			memcpy(eth_buf, skb->data, ETH_ALEN * 2 + 2);
+			skb_pull(skb, ETH_ALEN * 2 + 2);
+			/* For wondertap: build [radiotap][802.11 hdr][LLC/SNAP + Data]
+			 * Keep the full LLC/SNAP header as part of the 802.11 frame body.
+			 */
+			skb_put_data(subframe, rtap_buf, rtap_len);
+			skb_put_data(subframe, hdr_buf, hdrlen);
+			skb_put_data(subframe, eth_buf, ETH_ALEN * 2);
+			/* Copy MSDU length */
+			{
+				__be16 msdu_len = htons(data_len + LLC_SNAP_HDR_LEN);
+				skb_put_data(subframe, &msdu_len, 2);
+			}
+			/* Copy LLC/SNAP (8 bytes) + Data */
+			if (unlikely(skb_put_data_frag(subframe, &skb, LLC_SNAP_HDR_LEN + data_len))) {
+				kfree_skb(subframe);
+				SLSI_NET_ERR(dev, "[Wonder] Invalid A-MSDU DATA\n");
+				__skb_queue_purge(msdu_list);
+				if (skb_has_frag_list(skb_free_all))
+					skb_free_all->next = NULL;
+				kfree_skb(skb_free_all);
+				return -EINVAL;
+			}
+			skb_set_mac_header(subframe, 0);
+			/* Add dummy FCS */
+			memset(skb_put(subframe, WONDER_DUMMY_FCS_LEN), 0, WONDER_DUMMY_FCS_LEN);
+			slsi_skb_cb_init(subframe);
+			memcpy(subframe->cb, skb_cb, sizeof(struct slsi_skb_cb));
+			__skb_queue_tail(msdu_list, subframe);
+
+			if (is_last) {
+				/* The last subframe drained the source skb; free it. */
+				if (skb_has_frag_list(skb_free_all))
+					skb_free_all->next = NULL;
+				kfree_skb(skb_free_all);
+				return 0;
+			}
+
+			/* Advance skb->data to the next subframe: the 14 byte header and
+			 * the LLC/SNAP + Data have already been consumed above, so only
+			 * the 4-byte alignment padding is left.
+			 */
+			if (padding && unlikely(!skb_pull(skb, padding))) {
+				SLSI_NET_ERR(dev, "[Wonder] Invalid A-MSDU Padding\n");
+				__skb_queue_purge(msdu_list);
+				if (skb_has_frag_list(skb_free_all))
+					skb_free_all->next = NULL;
+				kfree_skb(skb_free_all);
+				return -EINVAL;
+			}
+			continue;
+		}
+#endif
 
 		/* handle last subframe */
 		if (skb->len == subframe_len + LLC_SNAP_HDR_LEN) {
@@ -467,11 +678,18 @@ int slsi_rx_amsdu_deaggregate(struct net_device *dev, struct sk_buff *skb, struc
 			SLSI_NET_DBG3(dev, SLSI_RX, "msdu subframe filtered out: MAC destination address %pM\n", mh->h_dest);
 			skb_pull(skb, LLC_SNAP_HDR_LEN + subframe_len + padding);
 			kfree_skb(subframe);
-			if (!is_last)
-				continue;
-		} else {
-			__skb_queue_tail(msdu_list, subframe);
+			/* The last subframe is processed in place (subframe == skb), so
+			 * the source skb is already freed here; do not fall through to
+			 * the cb init/queueing below with a freed skb.
+			 */
+			if (is_last)
+				return 0;
+			continue;
 		}
+		slsi_skb_cb_init(subframe);
+		memcpy(subframe->cb, skb_cb, sizeof(struct slsi_skb_cb));
+		__skb_queue_tail(msdu_list, subframe);
+
 
 		if (is_last)
 			return 0;
@@ -583,7 +801,7 @@ static struct sk_buff *slsi_parse_and_pull_ma_unitdata_ind_signal(struct slsi_de
 #ifdef CONFIG_SCSC_WLAN_LPC
 	u32 lpc_tag;
 
-	lpc_tag = fapi_get_u16(skb, u.ma_unitdata_ind.spare_1);
+	lpc_tag = fapi_get_u16(skb, u.ma_unitdata_ind.reserved1);
 #endif
 
 	/* 0.save info in fapi signal and remove fapi signal
@@ -608,7 +826,11 @@ static struct sk_buff *slsi_parse_and_pull_ma_unitdata_ind_signal(struct slsi_de
 	skb_pull(skb, fapi_get_siglen(skb));
 #endif
 	skb_cb = (struct slsi_skb_cb *)skb->cb;
-	skb_cb->is_amsdu = false;
+	/* skb now holds the original 802.11 frame (FAPI signal stripped). It stays
+	 * in 802.11 form through BA reordering and is converted to ethernet only at
+	 * the single delivery point (slsi_rx_data_deliver_skb).
+	 */
+	skb_cb->is_80211_frame = true;
 	skb_cb->is_ciphered = is_ciphered;
 	skb_cb->discard = discard;
 	skb_cb->wakeup = is_wakeup;
@@ -620,67 +842,171 @@ static struct sk_buff *slsi_parse_and_pull_ma_unitdata_ind_signal(struct slsi_de
 	return skb;
 }
 
-static int slsi_get_msdu_frame(struct net_device *dev, struct sk_buff *skb)
+#ifdef CONFIG_SCSC_WLAN_WONDERTAP
+static struct sk_buff *slsi_rx_wondertap_linearize_skb(struct sk_buff *skb)
 {
-	struct slsi_skb_cb   *skb_cb = (struct slsi_skb_cb *)skb->cb;
-	struct ieee80211_hdr *hdr;
-	int offset = 0;
-	u8 *qc = NULL;
+	struct sk_buff *new_skb;
+	struct sk_buff *frag_skb;
+	unsigned int total_len;
 
-	hdr = (struct ieee80211_hdr *)skb->data;
+	if (!skb_has_frag_list(skb))
+		return skb;
+
+	/* Calculate total length across all fragments */
+	total_len = skb->len;
+
+	/* Allocate a new linear skb large enough for all data */
+	new_skb = alloc_skb(total_len + WONDER_DUMMY_FCS_LEN, GFP_ATOMIC);
+	if (!new_skb) {
+		kfree_skb(skb);
+		return NULL;
+	}
+
+	/* Copy head skb data */
+	if (skb->len)
+		fapi_append_data(new_skb, skb->data, skb_headlen(skb));
+
+	/* Walk the frag_list and copy each fragment's data */
+	skb_walk_frags(skb, frag_skb) {
+		if (frag_skb->len)
+			fapi_append_data(new_skb, frag_skb->data, frag_skb->len);
+	}
+
+	memcpy(new_skb->cb, skb->cb, sizeof(struct slsi_skb_cb));
+	consume_skb(skb);
+	return new_skb;
+}
+
+static struct sk_buff *slsi_rx_wondertap_append_fcs(struct sk_buff *skb)
+{
+	/* TEST PATCH: append 4-byte dummy FCS (0x00000000) as required by Wonder driver */
+	if (skb_tailroom(skb) < WONDER_DUMMY_FCS_LEN) {
+		struct sk_buff *skb2 = skb_copy_expand(skb, skb_headroom(skb), WONDER_DUMMY_FCS_LEN, GFP_ATOMIC);
+
+		if (!skb2) {
+			SLSI_ERR_NODEV("wondertap: failed to expand tailroom for FCS\n");
+			kfree_skb(skb);
+			return NULL;
+		}
+		consume_skb(skb);
+		skb = skb2;
+	}
+	memset(skb_put(skb, WONDER_DUMMY_FCS_LEN), 0, WONDER_DUMMY_FCS_LEN);
+	return skb;
+}
+
+/* Append the dummy FCS to a frame that is kept in its native frag_list form
+ * (wondertap_amsdu_linearize=0). The FCS must land at the very end of the frame,
+ * i.e. on the last fragment of the frag_list, not on the head skb (which would
+ * put it in the middle of the payload). If skb has no frag_list this is just the
+ * plain head-skb append.
+ */
+static struct sk_buff *slsi_rx_wondertap_append_fcs_fraglist(struct sk_buff *skb)
+{
+	struct sk_buff *tail;
+	struct sk_buff *prev = NULL;
+	struct sk_buff *f;
+
+	if (!skb_has_frag_list(skb))
+		return slsi_rx_wondertap_append_fcs(skb);
+
+	/* Walk to the last fragment, remembering its predecessor so we can
+	 * relink the chain if the tail has to be reallocated below.
+	 */
+	for (f = skb_shinfo(skb)->frag_list; f->next; f = f->next)
+		prev = f;
+	tail = f;
+
+	/* The tail must be writable and have room for the FCS. A shared (cloned)
+	 * fragment or one without tailroom is replaced by a private, expanded
+	 * copy that is spliced back into the frag_list in place of the original.
+	 */
+	if (skb_cloned(tail) || skb_tailroom(tail) < WONDER_DUMMY_FCS_LEN) {
+		struct sk_buff *tail2 = skb_copy_expand(tail, skb_headroom(tail),
+							WONDER_DUMMY_FCS_LEN, GFP_ATOMIC);
+
+		if (!tail2) {
+			SLSI_ERR_NODEV("wondertap: failed to expand tail frag for FCS\n");
+			kfree_skb(skb);
+			return NULL;
+		}
+		tail2->next = NULL;
+		if (prev)
+			prev->next = tail2;
+		else
+			skb_shinfo(skb)->frag_list = tail2;
+		kfree_skb(tail);
+		tail = tail2;
+	}
+
+	memset(skb_put(tail, WONDER_DUMMY_FCS_LEN), 0, WONDER_DUMMY_FCS_LEN);
+	/* skb_put() only grew the tail fragment; propagate the added bytes to
+	 * the parent's aggregate length accounting.
+	 */
+	skb->len += WONDER_DUMMY_FCS_LEN;
+	skb->data_len += WONDER_DUMMY_FCS_LEN;
+	return skb;
+}
+#endif
+
+/* Resolve the destination address for an 802.11 frame. For EHT/MLD, when the
+ * frame targets one of our link addresses, translate it to our MLD (netdev)
+ * address. Depends on netdev_vif, hence kept here rather than in utils_80211.h.
+ */
+static const u8 *slsi_80211_resolve_da(struct net_device *dev, struct ieee80211_hdr *hdr)
+{
+#ifdef CONFIG_SCSC_WLAN_EHT
+	struct netdev_vif *ndev_vif = netdev_priv(dev);
+	int link_id;
+
+	for (link_id = 0; link_id < MAX_NUM_MLD_LINKS; link_id++) {
+		if (!(ndev_vif->sta.valid_links & BIT(link_id)))
+			continue;
+
+		if (SLSI_ETHER_EQUAL(ieee80211_get_DA(hdr), ndev_vif->sta.links[link_id].addr))
+			break;
+	}
+	return (link_id >= MAX_NUM_MLD_LINKS) ? ieee80211_get_DA(hdr) : dev->dev_addr;
+#else
+	return ieee80211_get_DA(hdr);
+#endif
+}
+
+/* Convert the original 802.11 data frame held by skb into an 802.3/ethernet
+ * frame in place. The caller must read any 802.11 fields it needs (tid, A-MSDU,
+ * sn, ...) via the utils_80211.h helpers before calling this, as the 802.11
+ * header is gone afterwards.
+ */
+int slsi_get_msdu_frame(struct net_device *dev, struct sk_buff *skb)
+{
+#ifdef CONFIG_SCSC_WLAN_EHT
+	struct netdev_vif *ndev_vif = netdev_priv(dev);
+	int link_id;
+#endif
+	struct slsi_skb_cb   *skb_cb = (struct slsi_skb_cb *)skb->cb;
+	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
+	int offset;
+	const u8 *da;
 
 	if (!ieee80211_is_data(hdr->frame_control)) {
 		SLSI_NET_DBG3(dev, SLSI_RX, "Ignore this packet. It is not data\n");
 		return -EINVAL;
 	}
 
-	if (ieee80211_has_fromds(hdr->frame_control) || ieee80211_has_tods(hdr->frame_control))
-		skb_cb->is_tdls = false;
-	else
-		skb_cb->is_tdls = true;
+	/* Offset to the 802.11 payload, including the KeyRSC for ciphered frames.
+	 * The PN inside that KeyRSC was already consumed from the 802.11 frame by
+	 * the BA/replay path before conversion.
+	 */
+	offset = slsi_80211_payload_offset(hdr->frame_control, skb_cb->is_ciphered);
 
-	/* 1.get seq control */
-	skb_cb->seq_num = (le16_to_cpu(hdr->seq_ctrl) & IEEE80211_SCTL_SEQ) >> 4;
-
-	/* 2.calc offset & del 80211_hdr */
-	if (ieee80211_has_a4(hdr->frame_control)) {
-		offset += sizeof(struct ieee80211_hdr);
-		SLSI_NET_DBG4(dev, SLSI_RX, "80211 header has 4addr offset:%d\n", offset);
-	} else {
-		offset += sizeof(struct ieee80211_hdr_3addr);
-	}
-
-	if (ieee80211_is_data_qos(hdr->frame_control)) {
-		qc = ieee80211_get_qos_ctl(hdr);
-		offset += IEEE80211_QOS_CTL_LEN;
-		SLSI_NET_DBG4(dev, SLSI_RX, "80211 header has QoS_CTL offset:%d\n", offset);
-		/* save priority from qos_ctl */
-		skb_cb->tid = qc[0] & IEEE80211_QOS_CTL_TID_MASK;
-	} else {
-		/* save priority for non-QoS tid */
-		skb_cb->tid = FAPI_PRIORITY_CONTENTION;
-	}
-
-	if (ieee80211_has_order(hdr->frame_control)) {
-		offset += IEEE80211_HT_CTL_LEN;
-		SLSI_NET_DBG4(dev, SLSI_RX, "80211 header has HT_CTL offset:%d\n", offset);
-	}
-
-	/* 3.store key-RSC if FAPI_OPTION_KEYRSC is set */
-	if (skb_cb->is_ciphered) {
-		memcpy(skb_cb->keyrsc, skb->data + offset, SLSI_EAPOL_KEY_RSC_LENGTH);
-		offset += SLSI_EAPOL_KEY_RSC_LENGTH;
-		SLSI_NET_DBG4(dev, SLSI_RX, "key-RSC is contained offset:%d\n", offset);
-	}
-
-	if (qc && (*qc & IEEE80211_QOS_CTL_A_MSDU_PRESENT)) {
-		/* 4.A-MSDU payload  just pull 80211_hdr */
-		skb_cb->is_amsdu = true;
+	if (slsi_80211_is_amsdu(hdr)) {
+		/* A-MSDU payload: just pull the 802.11 header */
 		skb_pull(skb, offset);
 		SLSI_NET_DBG4(dev, SLSI_RX, "Packet is A-MSDU offset:%d\n", offset);
 	} else {
-		/* 4.MSDU remove llc and add eth_hdr */
+		/* MSDU: remove llc and add eth_hdr */
 		SLSI_ETHER_COPY(&skb->data[offset], ieee80211_get_SA(hdr));
+		da = slsi_80211_resolve_da(dev, hdr);
 		/**
 		 * skb->data[offset - ETH_ALEN] and ieee80211_get_DA(hdr)
 		 * can have memory overlapping which leads to data corruption.
@@ -688,15 +1014,74 @@ static int slsi_get_msdu_frame(struct net_device *dev, struct sk_buff *skb)
 		 * We use memmove which considers memory overlapping case.
 		 * https://man7.org/linux/man-pages/man3/memmove.3.html
 		 */
-		memmove(&skb->data[offset - ETH_ALEN], ieee80211_get_DA(hdr), ETH_ALEN);
+		memmove(&skb->data[offset - ETH_ALEN], da, ETH_ALEN);
 		skb_pull(skb, offset - ETH_ALEN);
 		SLSI_NET_DBG4(dev, SLSI_RX, "Packet is MSDU offset:%d\n", offset);
 	}
-
+	skb_cb->is_80211_frame = false;
 	return 0;
 }
 
 #define SLSI_AP_GUEST_VLAN 2
+
+/* Build the ethernet-format representation of an 802.11 data skb into dst
+ * without mutating skb. Returns the number of bytes written = min(eth_len,
+ * dst_cap). The eth frame is [DA(6)][SA(6)][SNAP ethertype + payload], matching
+ * the byte layout produced by slsi_get_msdu_frame().
+ */
+static size_t slsi_80211_to_eth_buf(struct net_device *dev, struct sk_buff *skb,
+				    u8 *dst, size_t dst_cap)
+{
+	struct slsi_skb_cb   *skb_cb = (struct slsi_skb_cb *)skb->cb;
+	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
+	int offset = slsi_80211_payload_offset(hdr->frame_control, skb_cb->is_ciphered);
+	/* DA+SA overwrite the 802.11 header, KeyRSC and the first 6 LLC/SNAP bytes;
+	 * the SNAP ethertype and data follow.
+	 */
+	size_t llc_skip = (size_t)offset + ETH_ALEN;
+	u8 eth_hdr_buf[ETH_ALEN * 2];
+	size_t eth_len, n, hdr_copy;
+
+	if (skb->len <= llc_skip)
+		return 0;
+
+	SLSI_ETHER_COPY(eth_hdr_buf, slsi_80211_resolve_da(dev, hdr));
+	SLSI_ETHER_COPY(eth_hdr_buf + ETH_ALEN, ieee80211_get_SA(hdr));
+
+	eth_len = (ETH_ALEN * 2) + (skb->len - llc_skip);
+	n = min(eth_len, dst_cap);
+
+	hdr_copy = min(n, sizeof(eth_hdr_buf));
+	memcpy(dst, eth_hdr_buf, hdr_copy);
+	if (n > sizeof(eth_hdr_buf))
+		memcpy(dst + sizeof(eth_hdr_buf), skb->data + llc_skip, n - sizeof(eth_hdr_buf));
+
+	return n;
+}
+
+/* Capture (a debug copy of) the last delayed RX packet in ethernet format.
+ * is_80211_frame selects whether skb still holds the original 802.11 frame
+ * (RX data path) or an already-converted ethernet frame with the FAPI signal
+ * still attached (mlme received-frame path).
+ */
+void slsi_capture_last_delayd_pkt(struct slsi_dev *sdev, struct net_device *dev,
+				  struct sk_buff *skb, bool is_80211_frame)
+{
+	size_t cap = min_t(size_t, READ_ONCE(dbg_last_delayd_pkt_capture_len),
+			   (size_t)MAX_LAST_DELAYD_PKT_SIZE);
+	size_t n;
+
+	if (is_80211_frame) {
+		n = slsi_80211_to_eth_buf(dev, skb, sdev->last_delayd_pkt.pkt, cap);
+	} else {
+		size_t len = skb->len - fapi_get_siglen(skb);
+
+		n = min(len, cap);
+		if (n)
+			memcpy(sdev->last_delayd_pkt.pkt, fapi_get_data(skb), n);
+	}
+	sdev->last_delayd_pkt.pkt_size = n;
+}
 
 static inline bool slsi_is_guest_network(struct slsi_dev *sdev, struct net_device *dev,
 					 u8 *src_mac, struct net_device **vlan_dev)
@@ -735,14 +1120,120 @@ void slsi_rx_data_deliver_skb(struct slsi_dev *sdev, struct net_device *dev, str
 	struct netdev_vif *ndev_vif = netdev_priv(dev);
 	struct sk_buff_head msdu_list;
 	struct slsi_skb_cb *skb_cb = (struct slsi_skb_cb *)skb->cb;
+	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
 	struct slsi_peer *peer = NULL;
 	struct ethhdr *eth_hdr;
-	bool is_amsdu = skb_cb->is_amsdu;
+	bool is_amsdu;
+	u16 tid;
 	bool amsdu_packet_drop = false;
-	u8 trafic_q = slsi_frame_priority_to_ac_queue(skb_cb->tid);
+	u8 trafic_q;
 	struct netdev_vif *to_ndev_vif;
 	struct net_device *to_dev;
 
+	/* Single conversion point: the RX path delivers the original 802.11 frame
+	 * here (directly, or out of the BA reorder queue). Read the 802.11 fields
+	 * we need, then convert it to ethernet exactly once.
+	 */
+	if (WLBT_WARN_ON(!skb_cb->is_80211_frame)) {
+		kfree_skb(skb);
+		return;
+	}
+
+	is_amsdu = slsi_80211_is_amsdu(hdr);
+	tid = slsi_80211_get_tid(hdr);
+	trafic_q = slsi_frame_priority_to_ac_queue(tid);
+
+#ifdef CONFIG_SCSC_WLAN_WONDERTAP
+	/* Wondertap RELAY A-MSDU: deaggregate with radiotap+802.11 prefix per
+	 * subframe. Read rssi/timestamp from the FAPI signal still in headroom.
+	 */
+	if (ndev_vif->ifnum == SLSI_NET_INDEX_RELAY) {
+		skb_cb = (struct slsi_skb_cb *)skb->cb;
+		skb_cb->is_80211_frame = false;
+
+		if (!slsi_80211_is_amsdu(hdr) || !wondertap_amsdu_deaggregate) {
+			/* Pass the whole frame up (a non-A-MSDU, or an A-MSDU when
+			 * deaggregation is disabled). radiotap is prepended, then either
+			 * the frag_list is kept intact (default) or the frame is copied
+			 * into one linear jumbo skb (wondertap_amsdu_linearize).
+			 */
+			struct fapi_signal *fapi_hdr = (struct fapi_signal *)(skb->data - skb_cb->sig_length);
+			s16 w_rssi = (s16)le16_to_cpu(fapi_hdr->u.ma_unitdata_ind.rssi);
+			u32 w_timestamp = le32_to_cpu(fapi_hdr->u.ma_unitdata_ind.timestamp);
+
+			if (w_rssi > 0)
+				w_rssi -= 1;
+			else if (w_rssi < 0)
+				w_rssi += 1;
+
+			slsi_rx_wondertap_add_radiotap_header(dev, &skb, w_rssi, w_timestamp, NULL);
+
+			if (wondertap_amsdu_linearize) {
+				skb = slsi_rx_wondertap_linearize_skb(skb);
+				if (!skb) {
+					SLSI_NET_WARN(dev, "Packet dropped (A-MSDU linearize failed)\n");
+					dev->stats.rx_dropped++;
+					return;
+				}
+				skb = slsi_rx_wondertap_append_fcs(skb);
+			} else {
+				/* Keep the RX frag_list intact: radiotap sits on the head
+				 * skb (skb_push preserves frag_list) and the FCS goes on the
+				 * last fragment so it ends up at the frame tail.
+				 */
+				skb = slsi_rx_wondertap_append_fcs_fraglist(skb);
+			}
+			if (!skb) {
+				SLSI_NET_WARN(dev, "Packet dropped (Appending FCS failed)\n");
+				dev->stats.rx_dropped++;
+				return;
+			}
+
+			skb->dev = dev;
+			skb->ip_summed = CHECKSUM_NONE;
+			skb->protocol = htons(ETH_P_802_2);
+			skb->pkt_type = PACKET_OTHERHOST;
+			skb_reset_mac_header(skb);
+
+			dev->stats.rx_packets++;
+			dev->stats.rx_bytes += skb->len;
+			ndev_vif->rx_packets[trafic_q]++;
+			slsi_traffic_mon_event_rx(sdev, dev, skb);
+			netif_receive_skb(skb);
+		} else {
+			__skb_queue_head_init(&msdu_list);
+			if (slsi_rx_amsdu_deaggregate(dev, skb, &msdu_list)) {
+				SLSI_NET_WARN(dev, "Packet dropped (A-MSDU wondertap deaggregation error)\n");
+				dev->stats.rx_dropped++;
+				return;
+			}
+			/* Deliver subframes to wondertap netdev */
+			while (!skb_queue_empty(&msdu_list)) {
+				struct sk_buff *rx_skb = __skb_dequeue(&msdu_list);
+
+				rx_skb->dev = dev;
+				rx_skb->ip_summed = CHECKSUM_NONE;
+				rx_skb->protocol = htons(ETH_P_802_2);
+				rx_skb->pkt_type = PACKET_OTHERHOST;
+				skb_reset_mac_header(rx_skb);
+
+				dev->stats.rx_packets++;
+				dev->stats.rx_bytes += rx_skb->len;
+				ndev_vif->rx_packets[trafic_q]++;
+				slsi_traffic_mon_event_rx(sdev, dev, rx_skb);
+				netif_receive_skb(rx_skb);
+			}
+		}
+		slsi_wake_lock_timeout(&sdev->wlan_wl_ma, msecs_to_jiffies(SLSI_RX_WAKELOCK_TIME));
+		return;
+	}
+#endif
+
+	if (slsi_get_msdu_frame(dev, skb)) {
+		SLSI_NET_WARN(dev, "Packet dropped (invalid 802.11 data frame)\n");
+		kfree_skb(skb);
+		return;
+	}
 	__skb_queue_head_init(&msdu_list);
 
 	eth_hdr = (struct ethhdr *)skb->data;
@@ -1020,15 +1511,13 @@ void slsi_rx_data_deliver_skb(struct slsi_dev *sdev, struct net_device *dev, str
 		}
 	}
 #endif
-
-		rx_skb->dev = to_dev;
-		rx_skb->ip_summed = CHECKSUM_NONE;
-		rx_skb->protocol = eth_type_trans(rx_skb, to_dev);
-
-		SCSC_HIP4_SAMPLER_TCP_DECODE(sdev, to_dev, rx_skb->data, true);
 		slsi_traffic_mon_event_rx(sdev, to_dev, rx_skb);
 
 		SLSI_NET_DBG4(to_dev, SLSI_RX, "pass %u bytes to local stack\n", rx_skb->len);
+		rx_skb->dev = to_dev;
+		rx_skb->ip_summed = CHECKSUM_NONE;
+		rx_skb->protocol = eth_type_trans(rx_skb, to_dev);
+		SCSC_HIP4_SAMPLER_TCP_DECODE(sdev, to_dev, rx_skb->data, true);
 		slsi_skb_cb_init(rx_skb);
 #ifdef CONFIG_SCSC_WLAN_RX_NAPI
 #ifdef CONFIG_SCSC_WLAN_RX_NAPI_GRO
@@ -1071,6 +1560,94 @@ void slsi_rx_data_deliver_skb(struct slsi_dev *sdev, struct net_device *dev, str
 	}
 }
 
+#ifdef CONFIG_SCSC_WLAN_WONDERTAP
+static int slsi_rx_wondertap_add_radiotap_header(struct net_device *dev, struct sk_buff **skb_pointer, s16 rssi, u32 timestamp, u8 *rtap_buf)
+{
+	struct netdev_vif *ndev_vif = netdev_priv(dev);
+	int rtap_len = sizeof(struct ieee80211_radiotap_header) + RADIOTAP_WONDERTAP_EXTRA_LEN;
+	struct ieee80211_radiotap_header *rtap;
+	struct sk_buff *skb = *skb_pointer;
+	u8 *rtap_start;
+	u8 *pos;
+	u16 channel_freq = 0;
+	u16 channel_flags = 0;
+
+	/* Get channel frequency from VIF */
+	if (ndev_vif->chan)
+		channel_freq = ndev_vif->chan->center_freq;
+
+	/* Set channel flags: 5GHz OFDM or 0 */
+	if (channel_freq > 4000)
+		channel_flags = IEEE80211_CHAN_OFDM | IEEE80211_CHAN_5GHZ;
+
+	if (!rtap_buf && skb_headroom(skb) < rtap_len) {
+		struct sk_buff *skb2 = NULL;
+
+		skb2 = skb_realloc_headroom(skb, rtap_len);
+		if (!skb2)
+			return -EINVAL;
+		consume_skb(skb);
+		skb = skb2;
+		*skb_pointer = skb;
+	}
+
+	if (!rtap_buf) {
+		rtap_start = skb_push(skb, rtap_len);
+		memset(rtap_start, 0, rtap_len);
+		rtap = (void *)rtap_start;
+	} else
+		rtap = (void *)rtap_buf;
+
+	rtap->it_version = 0;
+	rtap->it_pad = 0;
+	rtap->it_len = cpu_to_le16(rtap_len);
+
+	/* Present flags: TSFT, Flags, Channel, Signal, Noise, Antenna */
+	rtap->it_present = cpu_to_le32(
+		(1 << IEEE80211_RADIOTAP_TSFT) |
+		(1 << IEEE80211_RADIOTAP_FLAGS) |
+		(1 << IEEE80211_RADIOTAP_CHANNEL) |
+		(1 << IEEE80211_RADIOTAP_DBM_ANTSIGNAL) |
+		(1 << IEEE80211_RADIOTAP_DBM_ANTNOISE) |
+		(1 << IEEE80211_RADIOTAP_ANTENNA)
+	);
+
+	pos = (u8 *)rtap + sizeof(struct ieee80211_radiotap_header);
+
+	/* TSFT (8 bytes, naturally 8-byte aligned after 8-byte radiotap header) */
+	put_unaligned_le64((u64)timestamp, pos);
+	pos += 8;
+
+	/* Flags (1 byte) */
+	*pos = 0x10;
+	pos += 1;
+
+	/* Padding for 2-byte alignment before Channel */
+	pos += 1;
+
+	/* Channel frequency (2 bytes) */
+	put_unaligned_le16(channel_freq, pos);
+	pos += 2;
+
+	/* Channel flags (2 bytes) */
+	put_unaligned_le16(channel_flags, pos);
+	pos += 2;
+
+	/* Antenna Signal / DBM_ANTSIGNAL (1 byte) */
+	*pos = (s8)rssi;
+	pos += 1;
+
+	/* Antenna Noise / DBM_ANTNOISE (1 byte) - set to 0 */
+	*pos = 0;
+	pos += 1;
+
+	/* Antenna (1 byte) - set to 0 */
+	*pos = 0;
+
+	return 0;
+}
+#endif
+
 #ifdef CONFIG_SCSC_WLAN_NAPI_PER_NETDEV
 void slsi_rx_data_ind(struct slsi_dev *sdev, struct net_device *dev, struct sk_buff *skb)
 #else
@@ -1080,15 +1657,23 @@ static void slsi_rx_data_ind(struct slsi_dev *sdev, struct net_device *dev, stru
 	struct netdev_vif *ndev_vif = netdev_priv(dev);
 	struct slsi_skb_cb *skb_cb;
 	struct slsi_peer *peer = NULL;
-	struct ethhdr *eth_hdr;
+	struct ieee80211_hdr *hdr;
+	u16 tid;
+	u16 sn;
+	bool is_tdls;
 	bool delayed = (fapi_get_u16(skb, u.ma_unitdata_ind.configuration_option) & FAPI_OPTION_DELAYED);
 	bool last_pkt = (fapi_get_u16(skb, u.ma_unitdata_ind.configuration_option) & FAPI_OPTION_LAST);
+#ifdef CONFIG_SCSC_WLAN_WONDERTAP
+	s16 rssi = fapi_get_s16(skb, u.ma_unitdata_ind.rssi);
+	u32 timestamp = fapi_get_u32(skb, u.ma_unitdata_ind.timestamp);
+	int radiotap_headroom = sizeof(struct ieee80211_radiotap_header) + RADIOTAP_WONDERTAP_EXTRA_LEN;
+	bool is_wonder_data_frame = false;
+#endif
 
 	skb = slsi_parse_and_pull_ma_unitdata_ind_signal(sdev, skb);
 	if (!skb)
 		return;
 
-	skb_cb = (struct slsi_skb_cb *)skb->cb;
 	/* pass the data up if the VIF type is Monitor */
 	if (ndev_vif->vif_type == FAPI_VIFTYPE_MONITOR) {
 		skb_reset_mac_header(skb);
@@ -1103,38 +1688,133 @@ static void slsi_rx_data_ind(struct slsi_dev *sdev, struct net_device *dev, stru
 		return;
 	}
 
-	if (slsi_get_msdu_frame(dev, skb)) {
+#ifdef CONFIG_SCSC_WLAN_WONDERTAP
+	if (ndev_vif->vif_type == FAPI_VIFTYPE_RELAY) {
+		u8 hdr11_buf[sizeof(struct ieee80211_hdr) + IEEE80211_QOS_CTL_LEN];
+		struct ieee80211_hdr *hdr11 = (struct ieee80211_hdr *)hdr11_buf;
+		size_t hdr11_copy_len = min_t(size_t, skb->len, sizeof(hdr11_buf));
+		const u8 *da;
+
+		/* Deep copy the 802.11 header into a local buffer so subsequent skb
+		 * realloc paths (skb_copy_expand below, skb_realloc_headroom inside
+		 * slsi_rx_wondertap_add_radiotap_header) cannot leave us with a
+		 * dangling pointer into the original skb.
+		 */
+		memcpy(hdr11_buf, skb->data, hdr11_copy_len);
+		da = ieee80211_get_DA(hdr11);
+		is_wonder_data_frame = ieee80211_is_data(hdr11->frame_control);
+
+		if (!is_multicast_ether_addr(da) && compare_ether_addr(da, dev->dev_addr)) {
+			SLSI_NET_DBG4(dev, SLSI_RX, "drop packet which is unicast, but not targetting this device.\n");
+			kfree_skb(skb);
+			return;
+		}
+
+		peer = slsi_get_peer_from_mac(sdev, dev, ieee80211_get_SA(hdr11));
+
+		/* A-MSDU data frames on RELAY: let them fall through to
+		 * slsi_rx_data_deliver_skb() which handles deaggregation with
+		 * radiotap info read from the FAPI header still in skb headroom.
+		 */
+		if (is_wonder_data_frame && peer && !is_multicast_ether_addr(da))
+			goto wonder_amsdu_via_deliver;
+
+		if (skb_headroom(skb) < radiotap_headroom + sizeof(struct msdu_hdr)) {
+			struct sk_buff *skb2 = NULL;
+			skb2 = skb_copy_expand(skb, radiotap_headroom + sizeof(struct msdu_hdr), skb_tailroom(skb), GFP_ATOMIC);
+			if (!skb2) {
+				SLSI_NET_ERR(dev, "skb_copy_expand didn't expand for needed headroom\n");
+				dev_kfree_skb(skb);
+				return;
+			}
+			consume_skb(skb);
+			skb = skb2;
+		}
+		if (rssi > 0)
+			rssi = rssi - 1;
+		else if (rssi < 0)
+			rssi = rssi + 1;
+
+		slsi_rx_wondertap_add_radiotap_header(dev, &skb, rssi, timestamp, NULL);
+
+		if (is_wonder_data_frame && wondertap_amsdu_linearize) {
+			skb = slsi_rx_wondertap_linearize_skb(skb);
+			if (!skb) {
+				SLSI_NET_ERR(dev, "wondertap: failed to linearize skb\n");
+				return;
+			}
+			skb = slsi_rx_wondertap_append_fcs(skb);
+		} else {
+			/* Default for a passed-up data frame: keep the native frag_list
+			 * intact and put the FCS on the last fragment (see deliver path).
+			 * Non-data frames have no frag_list, so this is a plain append.
+			 */
+			skb = slsi_rx_wondertap_append_fcs_fraglist(skb);
+		}
+		if (!skb) {
+			SLSI_NET_WARN(dev, "Packet dropped (Appending FCS failed)\n");
+			dev->stats.rx_dropped++;
+			return;
+		}
+
+		slsi_skb_cb_init(skb);
+		skb->ip_summed = CHECKSUM_NONE;
+		skb->dev = dev;
+		skb->protocol = htons(ETH_P_802_2);
+		skb->pkt_type = PACKET_OTHERHOST;
+		skb_reset_mac_header(skb);
+
+		netif_receive_skb(skb);
+		slsi_wake_lock_timeout(&sdev->wlan_wl_ma, msecs_to_jiffies(SLSI_RX_WAKELOCK_TIME));
+		return;
+	}
+wonder_amsdu_via_deliver:
+#endif
+
+	/* From here the skb still holds the original 802.11 frame. BA reordering,
+	 * replay detection and routing are all performed on this 802.11 frame; the
+	 * conversion to ethernet happens once in slsi_rx_data_deliver_skb().
+	 */
+	hdr = (struct ieee80211_hdr *)skb->data;
+	if (!ieee80211_is_data(hdr->frame_control)) {
 		WLBT_WARN_ON(1);
 		kfree_skb(skb);
 		return;
 	}
-	eth_hdr = (struct ethhdr *)skb->data;
-	/* Populate wake reason stats here */
-	if (unlikely(slsi_skb_cb_get(skb)->wakeup)) {
+	skb_cb = (struct slsi_skb_cb *)skb->cb;
+
+	tid = slsi_80211_get_tid(hdr);
+	sn = slsi_80211_get_sn(hdr);
+	is_tdls = slsi_80211_is_tdls(hdr);
+
+	/* Populate wake reason stats here. The stats only need the ethernet/IP
+	 * headers, so build a small ethernet-format view without converting skb.
+	 */
+	if (unlikely(skb_cb->wakeup)) {
+		u8 wake_buf[SLSI_WAKE_STATS_HDR_LEN];
+		size_t wake_len = slsi_80211_to_eth_buf(dev, skb, wake_buf, sizeof(wake_buf));
+
 		schedule_work(&sdev->wakeup_time_work);
 		skb->mark = SLSI_WAKEUP_PKT_MARK;
-		slsi_rx_update_wake_stats(sdev, eth_hdr, skb->len, skb);
+		slsi_rx_update_wake_stats(sdev, (struct ethhdr *)wake_buf, wake_len, skb);		
 	}
 
 	if (delayed && last_pkt) {
-		sdev->last_delayd_pkt.pkt_size = (skb->len - fapi_get_siglen(skb) > MAX_LAST_DELAYD_PKT_SIZE) ?
-						 MAX_LAST_DELAYD_PKT_SIZE : skb->len - fapi_get_siglen(skb);
-		if (sdev->last_delayd_pkt.pkt_size)
-			memcpy(sdev->last_delayd_pkt.pkt, eth_hdr, sdev->last_delayd_pkt.pkt_size);
+		slsi_capture_last_delayd_pkt(sdev, dev, skb, true);
 	}
 
-	SLSI_NET_DBG4(dev, SLSI_RX, "ma_unitdata_ind(vif:%d, dest:%pM, src:%pM, tid:%d, seq:%d, cipher:%d, discard:%X, is_amsdu:%d, is_tdls:%d delayed:%d last:%d\n",
+	SLSI_NET_DBG4(dev, SLSI_RX,
+		      "ma_unitdata_ind(ifnum:%d, dest:" MACSTR ", src:" MACSTR ", tid:%d, seq:%d, cipher:%d, discard:0x%X, is_tdls:%d delayed:%d last:%d\n",
 		      ndev_vif->ifnum,
-		      eth_hdr->h_dest,
-		      eth_hdr->h_source,
-		      skb_cb->tid,
-		      skb_cb->seq_num,
+		      MAC2STR(ieee80211_get_DA(hdr)),
+		      MAC2STR(ieee80211_get_SA(hdr)),
+		      tid,
+		      sn,
 		      skb_cb->is_ciphered,
 		      skb_cb->discard,
-		      skb_cb->is_amsdu,
-		      skb_cb->is_tdls, delayed, last_pkt);
+		      is_tdls, delayed, last_pkt);
 
-	peer = slsi_get_peer_from_mac(sdev, dev, eth_hdr->h_source);
+	peer = slsi_get_peer_from_mac(sdev, dev, ieee80211_get_SA(hdr));
 	if (!peer) {
 		SLSI_NET_WARN(dev, "Packet dropped (no peer records)\n");
 		/* Race in Data plane (Shows up in fw test mode) */
@@ -1149,10 +1829,14 @@ static void slsi_rx_data_ind(struct slsi_dev *sdev, struct net_device *dev, stru
 		return;
 	}
 
-	/* skip BA reorder if the destination address is Multicast */
-	if (ndev_vif->vif_type == FAPI_VIFTYPE_STATION && (is_multicast_ether_addr(eth_hdr->h_dest))) {
+	/* skip BA reorder if the destination address is Multicast.
+	 * Routing decisions use the outer 802.11 addresses. For A-MSDU the inner
+	 * subframe addresses may differ, but multicast frames are not BA/A-MSDU
+	 * aggregated so this matches the pre-refactor behaviour.
+	 */
+	if (ndev_vif->vif_type == FAPI_VIFTYPE_STATION && is_multicast_ether_addr(ieee80211_get_DA(hdr))) {
 		/* Skip BA reorder and pass the frames Up */
-		SLSI_NET_DBG2(dev, SLSI_RX, "Multicast/Broadcast packet received in STA mode(seq: %d) skip BA\n", skb_cb->seq_num);
+		SLSI_NET_DBG2(dev, SLSI_RX, "Multicast/Broadcast packet received in STA mode(seq: %d) skip BA\n", sn);
 		slsi_rx_data_deliver_skb(sdev, dev, skb, false);
 		return;
 	}
@@ -1161,9 +1845,9 @@ static void slsi_rx_data_ind(struct slsi_dev *sdev, struct net_device *dev, stru
 	 * This frames must not be injected in to the block session with the AP as the sequence numbers are different
 	 * that will confuse the BA process. Therefore we have to skip BA for those frames.
 	 */
-	if (ndev_vif->vif_type == FAPI_VIFTYPE_STATION && peer->aid < SLSI_TDLS_PEER_INDEX_MIN && skb_cb->is_tdls) {
+	if (ndev_vif->vif_type == FAPI_VIFTYPE_STATION && peer->aid < SLSI_TDLS_PEER_INDEX_MIN && is_tdls) {
 		if (printk_ratelimit())
-			SLSI_NET_WARN(dev, "Packet received from TDLS but no TDLS exists (seq: %x) Skip BA\n", skb_cb->seq_num);
+			SLSI_NET_WARN(dev, "Packet received from TDLS but no TDLS exists (seq: 0x%x) Skip BA\n", sn);
 
 		/* Skip BA reorder and pass the frames Up */
 		slsi_rx_data_deliver_skb(sdev, dev, skb, false);
@@ -1171,8 +1855,8 @@ static void slsi_rx_data_ind(struct slsi_dev *sdev, struct net_device *dev, stru
 	}
 
 	/* TDLS is enabled for the PEER but still packet is received through the AP. Process this packet with the AP PEER */
-	if (ndev_vif->vif_type == FAPI_VIFTYPE_STATION && peer->aid >= SLSI_TDLS_PEER_INDEX_MIN && !skb_cb->is_tdls) {
-		SLSI_NET_DBG2(dev, SLSI_TDLS, "Packet received from TDLS peer through the AP(seq: %x)\n", skb_cb->seq_num);
+	if (ndev_vif->vif_type == FAPI_VIFTYPE_STATION && peer->aid >= SLSI_TDLS_PEER_INDEX_MIN && !is_tdls) {
+		SLSI_NET_DBG2(dev, SLSI_TDLS, "Packet received from TDLS peer through the AP(seq: 0x%x)\n", sn);
 		peer = slsi_get_peer_from_qs(sdev, dev, SLSI_STA_PEER_QUEUESET);
 		if (!peer) {
 			SLSI_NET_WARN(dev, "Packet dropped (AP peer not found)\n");
@@ -1182,12 +1866,21 @@ static void slsi_rx_data_ind(struct slsi_dev *sdev, struct net_device *dev, stru
 	}
 
 	/* If frame belongs to a negotiated BA, BA will consume the frame */
-	if (slsi_ba_check(peer, skb_cb->tid))
-		if (!slsi_ba_process_frame(dev, peer, skb, skb_cb->seq_num, skb_cb->tid))
+	if (slsi_ba_check(peer, tid))
+		if (!slsi_ba_process_frame(dev, peer, skb, sn, tid))
 			return;
 
+	/* store the SN even when BA agreement is not setup yet */
+	slsi_ba_store_sn(dev, peer, tid, sn);
+
 	/* store the PN even when BA agreement is not setup yet */
-	slsi_ba_replay_store_pn(dev, peer, skb);
+	{
+		u8 pn[SLSI_RX_PN_LEN] = {0};
+
+		if (skb_cb->is_ciphered)
+			slsi_80211_get_pn(hdr, pn);
+		slsi_ba_replay_store_pn(dev, peer, tid, sn, skb_cb->is_ciphered, pn);
+	}
 
 	/* Pass to next receive process */
 	slsi_rx_data_deliver_skb(sdev, dev, skb, false);

@@ -23,20 +23,19 @@
 struct slsi_skb_cb {
 	u32 sig_length;
 	u32 data_length;
-	u32 frame_format;
 #ifdef CONFIG_SCSC_SMAPPER
 	bool smapper_linked;
 	bool free_ma_unitdat;
 	struct sk_buff *skb_addr;
 #endif
-	bool wakeup;
-	bool is_ciphered;
-	bool is_amsdu;
-	bool is_tdls;
+	u8 wakeup:1;
+	u8 is_ciphered:1;
+	/* Set while the RX skb still holds the original 802.11 frame (i.e. before
+	 * slsi_get_msdu_frame() converts it to ethernet). Guards against double
+	 * conversion in the delivery path.
+	 */
+	u8 is_80211_frame:1;
 	u8 discard;
-	u16 tid;
-	u16 seq_num;
-	u8 keyrsc[8];  /* the value 8 should match the SLSI_EAPOL_KEY_RSC_LENGTH in mgt.h */
 	u16 peer_idx;
 };
 struct netdev_vif;
@@ -736,6 +735,76 @@ static inline int firmware_read(const struct firmware *firm, void *dest, size_t 
 	memcpy(dest, firm->data + *offset, size);
 	*offset = *offset + size;
 	return size;
+}
+
+/* Helpers to parse an 802.11 data frame in the RX path without converting it
+ * to 802.3/ethernet, so that BA reordering, replay detection and routing can
+ * run on the original 802.11 frame. These build on the standard kernel
+ * <linux/ieee80211.h> accessors; only the SLSI/firmware specific bits (KeyRSC
+ * payload offset and PN extraction) are open coded.
+ *
+ * Requires <linux/ieee80211.h> and fapi.h (both pulled in via dev.h).
+ */
+
+/* Offset of the 802.11 payload (LLC/SNAP or A-MSDU subframe). When the frame is
+ * ciphered the firmware prepends an 8 byte KeyRSC right after the MAC header.
+ * The value 8 must match SLSI_EAPOL_KEY_RSC_LENGTH in mgt.h.
+ */
+static inline int slsi_80211_payload_offset(__le16 fc, bool is_ciphered)
+{
+	int offset = ieee80211_hdrlen(fc);
+
+	if (is_ciphered)
+		offset += 8;
+
+	return offset;
+}
+
+static inline u16 slsi_80211_get_tid(struct ieee80211_hdr *hdr)
+{
+	if (ieee80211_is_data_qos(hdr->frame_control))
+		return ieee80211_get_tid(hdr);
+	return FAPI_PRIORITY_CONTENTION;
+}
+
+static inline u16 slsi_80211_get_sn(struct ieee80211_hdr *hdr)
+{
+	return IEEE80211_SEQ_TO_SN(le16_to_cpu(hdr->seq_ctrl));
+}
+
+/* A frame with neither FromDS nor ToDS set is a direct (TDLS) frame. */
+static inline bool slsi_80211_is_tdls(struct ieee80211_hdr *hdr)
+{
+	return !(ieee80211_has_fromds(hdr->frame_control) ||
+		 ieee80211_has_tods(hdr->frame_control));
+}
+
+static inline bool slsi_80211_is_amsdu(struct ieee80211_hdr *hdr)
+{
+	u8 *qc;
+
+	if (!ieee80211_is_data_qos(hdr->frame_control))
+		return false;
+
+	qc = ieee80211_get_qos_ctl(hdr);
+	return !!(*qc & IEEE80211_QOS_CTL_A_MSDU_PRESENT);
+}
+
+/* Extract the 6 byte replay PN from the KeyRSC that immediately follows the MAC
+ * header in a ciphered frame. The byte mapping matches the original
+ * slsi_get_msdu_frame()/slsi_ba_replay_*() KeyRSC->PN ordering. The caller must
+ * only invoke this for ciphered frames and provide an SLSI_RX_PN_LEN buffer.
+ */
+static inline void slsi_80211_get_pn(struct ieee80211_hdr *hdr, u8 *pn)
+{
+	const u8 *keyrsc = (const u8 *)hdr + ieee80211_hdrlen(hdr->frame_control);
+
+	pn[0] = keyrsc[7];
+	pn[1] = keyrsc[6];
+	pn[2] = keyrsc[5];
+	pn[3] = keyrsc[4];
+	pn[4] = keyrsc[1];
+	pn[5] = keyrsc[0];
 }
 
 #ifdef __cplusplus

@@ -2789,6 +2789,10 @@ int slsi_hip_init(struct slsi_hip *hip)
 	spin_lock_init(&hip->hip_priv->tx_lock);
 	atomic_set(&hip->hip_priv->in_tx, 0);
 
+	spin_lock_bh(&hip->hip_priv->tx_lock);
+	atomic_set(&hip->is_hip_priv_valid, 1);
+	spin_unlock_bh(&hip->hip_priv->tx_lock);
+
 #ifdef CONFIG_SCSC_WLAN_RX_NAPI
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0))
 	slsi_wake_lock_init(NULL, &hip->hip_priv->hip4_wake_lock_tx.ws, "hip4_wake_lock_tx");
@@ -2937,6 +2941,10 @@ int slsi_hip_transmit_frame(struct slsi_hip *hip, struct sk_buff *skb, bool ctrl
 	if (!hip || !sdev || !sdev->service || !skb || !hip->hip_priv)
 		return -EINVAL;
 
+	if (!atomic_read(&hip->is_hip_priv_valid)) {
+		SLSI_WARN_NODEV("invalid hip_priv\n");
+		return -ENODEV;
+	}
 	spin_lock_bh(&hip->hip_priv->tx_lock);
 	atomic_set(&hip->hip_priv->in_tx, 1);
 
@@ -3351,6 +3359,9 @@ void slsi_hip_deinit(struct slsi_hip *hip)
 	slsi_wlan_dpd_mmap_user_space_event(SLSI_WLAN_DPD_DRV_MSG_ID_WLAN_OFF);
 #endif
 
+	spin_lock_bh(&hip->hip_priv->tx_lock);
+	atomic_set(&hip->is_hip_priv_valid, 0);
+	spin_unlock_bh(&hip->hip_priv->tx_lock);
 #ifdef CONFIG_SCSC_WLAN_RX_NAPI
 	slsi_wake_lock_destroy(&hip->hip_priv->hip4_wake_lock_tx);
 	slsi_wake_lock_destroy(&hip->hip_priv->hip4_wake_lock_ctrl);

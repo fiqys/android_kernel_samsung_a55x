@@ -15,24 +15,6 @@
 
 #include "base/mfc_common.h"
 
-#define need_to_dpb_flush(core_ctx)		\
-	((core_ctx->state == MFCINST_FINISHING) ||	\
-	 (core_ctx->state == MFCINST_RUNNING)	||	\
-	 (core_ctx->state == MFCINST_RES_CHANGE_END))
-#define need_to_wait_nal_abort(core_ctx)		 \
-	(core_ctx->state == MFCINST_ABORT_INST)
-#define need_to_special_parsing(core_ctx)		\
-	((core_ctx->state == MFCINST_GOT_INST) ||	\
-	 (core_ctx->state == MFCINST_HEAD_PARSED))
-#define need_to_special_parsing_nal(core_ctx)	\
-	(core_ctx->state == MFCINST_RUNNING)
-#define ready_to_get_crop(core_ctx)			\
-	((core_ctx->state == MFCINST_HEAD_PARSED) ||		\
-	(core_ctx->state == MFCINST_RUNNING) ||		\
-	(core_ctx->state == MFCINST_SPECIAL_PARSING) ||	\
-	(core_ctx->state == MFCINST_SPECIAL_PARSING_NAL) ||	\
-	(core_ctx->state == MFCINST_FINISHING))
-
 void mfc_get_corelock_ctx(struct mfc_ctx *ctx);
 void mfc_release_corelock_ctx(struct mfc_ctx *ctx);
 int mfc_get_corelock_migrate(struct mfc_ctx *ctx);

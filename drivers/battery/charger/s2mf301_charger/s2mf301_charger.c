@@ -1568,6 +1568,8 @@ static void s2mf301_ivr_irq_work(struct work_struct *work)
 	if (is_nocharge_type(charger->cable_type)) {
 		u8 ivr_mask;
 
+		s2mf301_check_multi_tap_off(charger);
+
 		pr_info("%s : skip\n", __func__);
 		s2mf301_read_reg(charger->i2c, S2MF301_CHG_INT2M, &ivr_mask);
 		if (ivr_mask & 0x01) /* Unmask IRQ */

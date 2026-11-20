@@ -18,6 +18,7 @@
 #include "cac.h"
 #include "nl80211_vendor.h"
 #include "sap.h"
+#include "sap_ma.h"
 #include "scsc_wifilogger_ring_wakelock_api.h"
 #include "log2us.h"
 #include <scsc/scsc_warn.h>
@@ -475,7 +476,7 @@ static int slsi_extract_mbssids(struct slsi_dev *sdev, struct netdev_vif *ndev_v
 				continue;
 			}
 			ssid_ie = cfg80211_find_ie(WLAN_EID_SSID, sub_elem->data, sub_elem->datalen);
-			if (!ssid_ie || ssid_ie[1] >= IEEE80211_MAX_SSID_LEN)
+			if (!ssid_ie || ssid_ie[1] > IEEE80211_MAX_SSID_LEN)
 				continue;
 			ssid_len = ssid_ie[1];
 			scan_ssid = &ssid_ie[2];
@@ -564,7 +565,7 @@ static int slsi_extract_mbssids(struct slsi_dev *sdev, struct netdev_vif *ndev_v
 				continue;
 			}
 			ssid_ie = cfg80211_find_ie(WLAN_EID_SSID, sub_elem + 2, sub_len);
-			if (!ssid_ie || ssid_ie[1] >= IEEE80211_MAX_SSID_LEN)
+			if (!ssid_ie || ssid_ie[1] > IEEE80211_MAX_SSID_LEN)
 				continue;
 			ssid_len = ssid_ie[1];
 			scan_ssid = &ssid_ie[2];
@@ -1284,7 +1285,7 @@ static void slsi_scan_update_ssid_map(struct slsi_dev *sdev, struct net_device *
 			}
 		}
 
-		if (!ssid_ie) {
+		if (!ssid_ie || ssid_ie[1] > IEEE80211_MAX_SSID_LEN) {
 			scan_result = scan_result->next;
 			continue;
 		}
@@ -4972,14 +4973,12 @@ void slsi_rx_received_frame_ind(struct slsi_dev *sdev, struct net_device *dev, s
 	} else if (data_unit_descriptor == FAPI_DATAUNITDESCRIPTOR_IEEE802_3_FRAME) {
 		struct slsi_peer *peer = NULL;
 		struct ethhdr *ehdr = (struct ethhdr *)fapi_get_data(skb);
-		bool delayed = (fapi_get_u16(skb, u.mlme_received_frame_ind.spare_1) & FAPI_OPTION_DELAYED);
-		bool last_pkt = (fapi_get_u16(skb, u.mlme_received_frame_ind.spare_1) & FAPI_OPTION_LAST);
+		bool delayed = (fapi_get_u16(skb, u.mlme_received_frame_ind.option) & FAPI_OPTION_DELAYED);
+		bool last_pkt = (fapi_get_u16(skb, u.mlme_received_frame_ind.option) & FAPI_OPTION_LAST);
 
+		/* This path already carries an ethernet frame (FAPI signal attached). */
 		if (delayed && last_pkt) {
-			sdev->last_delayd_pkt.pkt_size = (skb->len - fapi_get_siglen(skb) > MAX_LAST_DELAYD_PKT_SIZE) ?
-							 MAX_LAST_DELAYD_PKT_SIZE : skb->len - fapi_get_siglen(skb);
-			if (sdev->last_delayd_pkt.pkt_size)
-				memcpy(sdev->last_delayd_pkt.pkt, ehdr, sdev->last_delayd_pkt.pkt_size);
+			slsi_capture_last_delayd_pkt(sdev, dev, skb, false);
 		}
 
 		/* Populate wake reason stats here */

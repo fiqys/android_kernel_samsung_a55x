@@ -35,16 +35,20 @@ void slsi_ba_update_window(struct net_device *dev,
 
 void slsi_ba_process_complete(struct net_device *dev, bool ctx_napi);
 
+void slsi_ba_store_sn(struct net_device *dev, struct slsi_peer *peer, u16 tid, u16 sn);
+
 bool slsi_ba_check(struct slsi_peer *peer, u16 tid);
 
 void slsi_rx_ba_stop_all(struct net_device *dev, struct slsi_peer *peer);
 
-void slsi_rx_ba_init(struct slsi_dev *sdev);
+int slsi_rx_ba_init(struct slsi_dev *sdev);
+void slsi_rx_ba_deinit(struct slsi_dev *sdev);
 
 /* replay detection for frames under BA */
 void slsi_ba_replay_reset_pn(struct net_device *dev, struct slsi_peer *peer);
 
-void slsi_ba_replay_store_pn(struct net_device *dev, struct slsi_peer *peer, struct sk_buff *skb);
+void slsi_ba_replay_store_pn(struct net_device *dev, struct slsi_peer *peer, u16 tid, u16 sn,
+			     bool is_ciphered, const u8 *pn);
 
 void slsi_ba_replay_get_pn(struct net_device *dev, struct slsi_peer *peer, struct sk_buff *skb, struct slsi_ba_frame_desc *frame_desc);
 

@@ -7,6 +7,7 @@
 #include "debug.h"
 #include "dev.h"
 #include "ba.h"
+#include "utils.h"
 
 static bool ba_replay_check_enable = true;
 module_param(ba_replay_check_enable, bool, S_IRUGO | S_IWUSR);
@@ -39,11 +40,11 @@ struct ba_replay_check_type {
  *			(b) it times out
  * 			(c) it's PN is more than the highest PN passed to UL so far
  *
- *		An MSDU’s SN is not “higher” than the “highest” SN (i.e. modulo 4096) passed to
+ *		An MSDUï¿½s SN is not ï¿½higherï¿½ than the ï¿½highestï¿½ SN (i.e. modulo 4096) passed to
  *		the upper layers so far, then only pass it if
- *			(a) there are no “lower” holes or
+ *			(a) there are no ï¿½lowerï¿½ holes or
  *			(b) it times out or
- *			(c) a “higher” SN has already timed out and been passed to the UL, and if
+ *			(c) a ï¿½higherï¿½ SN has already timed out and been passed to the UL, and if
  *			(d) its PN is less than the highest PN passed to the UL so far
  *
  */
@@ -62,20 +63,14 @@ void slsi_ba_replay_reset_pn(struct net_device *dev, struct slsi_peer *peer)
 		memset(peer->rx_pn[i], 0, SLSI_RX_PN_LEN);
 }
 
+/* skb holds the original (un-converted) 802.11 frame; the PN is extracted from
+ * the KeyRSC that follows the 802.11 MAC header.
+ */
 void slsi_ba_replay_get_pn(struct net_device *dev, struct slsi_peer *peer, struct sk_buff *skb, struct slsi_ba_frame_desc *frame_desc)
 {
-	struct slsi_skb_cb *skb_cb;
-
 	if (ba_replay_check_enable) {
-		skb_cb = (struct slsi_skb_cb *)skb->cb;
-
-		if (skb_cb->is_ciphered) {
-			frame_desc->pn[0] = skb_cb->keyrsc[7];
-			frame_desc->pn[1] = skb_cb->keyrsc[6];
-			frame_desc->pn[2] = skb_cb->keyrsc[5];
-			frame_desc->pn[3] = skb_cb->keyrsc[4];
-			frame_desc->pn[4] = skb_cb->keyrsc[1];
-			frame_desc->pn[5] = skb_cb->keyrsc[0];
+		if (frame_desc->is_ciphered) {
+			slsi_80211_get_pn((struct ieee80211_hdr *)skb->data, frame_desc->pn);
 			SLSI_NET_DBG4(dev, SLSI_RX_BA, "received: tid=%d sn=%d previous PN %pm received PN %pm\n",
 				frame_desc->tid,
 				frame_desc->sn,
@@ -85,26 +80,17 @@ void slsi_ba_replay_get_pn(struct net_device *dev, struct slsi_peer *peer, struc
 	}
 }
 
-void slsi_ba_replay_store_pn(struct net_device *dev, struct slsi_peer *peer, struct sk_buff *skb)
+void slsi_ba_replay_store_pn(struct net_device *dev, struct slsi_peer *peer, u16 tid, u16 sn,
+			     bool is_ciphered, const u8 *pn)
 {
-	struct slsi_skb_cb *skb_cb;
-
 	if (ba_replay_check_enable) {
-		skb_cb = (struct slsi_skb_cb *)skb->cb;
-
-		if (skb_cb->is_ciphered) {
-			if (skb_cb->tid <= FAPI_PRIORITY_QOS_UP7) {
-				peer->rx_pn[skb_cb->tid][0] = skb_cb->keyrsc[7];
-				peer->rx_pn[skb_cb->tid][1] = skb_cb->keyrsc[6];
-				peer->rx_pn[skb_cb->tid][2] = skb_cb->keyrsc[5];
-				peer->rx_pn[skb_cb->tid][3] = skb_cb->keyrsc[4];
-				peer->rx_pn[skb_cb->tid][4] = skb_cb->keyrsc[1];
-				peer->rx_pn[skb_cb->tid][5] = skb_cb->keyrsc[0];
-
+		if (is_ciphered) {
+			if (tid <= FAPI_PRIORITY_QOS_UP7) {
+				memcpy(peer->rx_pn[tid], pn, SLSI_RX_PN_LEN);
 				SLSI_NET_DBG4(dev, SLSI_RX_BA, "store: tid=%d sn=%d received PN %pm\n",
-					skb_cb->tid,
-					skb_cb->seq_num,
-					peer->rx_pn[skb_cb->tid]);
+					tid,
+					sn,
+					peer->rx_pn[tid]);
 			}
 		}
 	}
@@ -113,7 +99,6 @@ void slsi_ba_replay_store_pn(struct net_device *dev, struct slsi_peer *peer, str
 bool ba_replay_check_option_1(struct net_device *dev, struct slsi_ba_session_rx *ba_session_rx, struct slsi_ba_frame_desc *frame_desc)
 {
 	struct slsi_peer *peer = ba_session_rx->peer;
-	struct slsi_skb_cb *skb_cb = (struct slsi_skb_cb *)frame_desc->signal->cb;
 	u8 zero_pn[SLSI_RX_PN_LEN] = {0};
 
 	if (frame_desc->flag_old_sn) {
@@ -122,7 +107,7 @@ bool ba_replay_check_option_1(struct net_device *dev, struct slsi_ba_session_rx 
 		return true;
 	}
 
-	if (!skb_cb->is_ciphered)
+	if (!frame_desc->is_ciphered)
 		return false;
 
 	/* check if current PN is less than already received PN
@@ -148,12 +133,11 @@ bool ba_replay_check_option_1(struct net_device *dev, struct slsi_ba_session_rx 
 bool ba_replay_check_option_2(struct net_device *dev, struct slsi_ba_session_rx *ba_session_rx, struct slsi_ba_frame_desc *frame_desc)
 {
 	struct slsi_peer *peer = ba_session_rx->peer;
-	struct slsi_skb_cb *skb_cb = (struct slsi_skb_cb *)frame_desc->signal->cb;
 	u8 zero_pn[SLSI_RX_PN_LEN] = {0};
 	u8 i = 0;
 
 	if (!frame_desc->flag_old_sn) {
-		if ((skb_cb->is_ciphered) &&
+		if ((frame_desc->is_ciphered) &&
 			(memcmp(frame_desc->pn, peer->rx_pn[frame_desc->tid], SLSI_RX_PN_LEN) <= 0) &&
 			(!memcmp(frame_desc->pn, zero_pn, SLSI_RX_PN_LEN) ||
 			!memcmp(peer->rx_pn[frame_desc->tid], zero_pn, SLSI_RX_PN_LEN))) {
@@ -188,7 +172,7 @@ bool ba_replay_check_option_2(struct net_device *dev, struct slsi_ba_session_rx 
 	}
 
 	/* check if SN is more than highest SN passed so far, if not */
-	if (skb_cb->is_ciphered) {
+	if (frame_desc->is_ciphered) {
 		if (IS_SN_LESS(ba_session_rx->highest_received_sn, frame_desc->sn)) {
 			/* check if its PN is more than highest PN passed to the UL so far */
 			if (memcmp(frame_desc->pn, peer->rx_pn[frame_desc->tid], SLSI_RX_PN_LEN) <= 0) {

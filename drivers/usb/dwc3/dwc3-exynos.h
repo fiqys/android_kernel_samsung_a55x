@@ -127,6 +127,7 @@ struct dwc3_exynos {
 	int			lazy_vbus_up;
 
 	bool			usb_data_enabled;
+	bool			id_active;
 };
 
 struct usb_xhci_pre_alloc {

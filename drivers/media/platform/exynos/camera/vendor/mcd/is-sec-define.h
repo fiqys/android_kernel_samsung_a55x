@@ -57,6 +57,7 @@ ssize_t write_data_to_file(char *name, char *buf, size_t count, loff_t *pos);
 ssize_t read_data_rom_file(char *name, char *buf, size_t count, loff_t *pos);
 bool is_sec_file_exist(char *name);
 int is_sec_get_rom_info(struct is_vendor_rom **rom_info, int rom_id);
+int is_sec_get_dualized_rom_info(struct is_vendor_rom **rom_info, int rom_id);
 int is_sec_check_dualize(int position);
 int is_sec_run_fw_sel(int rom_id);
 int is_sec_compare_ver(int rom_id);

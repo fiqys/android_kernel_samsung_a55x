@@ -21,6 +21,10 @@
 #include <scsc/scsc_log_collector.h>
 #endif
 
+#if CONFIG_SCSC_WLAN_WONDERTAP
+#include "slsi_wondertap.h"
+#endif
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
 MODULE_IMPORT_NS(VFS_internal_I_am_really_a_filesystem_and_am_NOT_a_driver);
 #endif
@@ -274,6 +278,20 @@ static  bool wlan_stop_on_failure_v2(struct scsc_service_client *client, struct 
 		SLSI_INFO_NODEV("Wi-Fi service driver not started\n");
 	}
 
+	/* The wondertap component is NOT torn down here on purpose. This
+	* callback runs from srvman_freeze_sub_system() with
+	* srvman->service_list_mutex held and must return promptly, whereas
+	* slsi_wondertap_unregister() -> component_del() -> unbind takes
+	* rtnl_lock, which another task can hold for up to recovery_timeout
+	* (slsi_net_open() -> slsi_start() waits on recovery_completed with
+	* rtnl held). The teardown is done from slsi_wlan_service_remove()
+	* instead: mxman_module_reset() drives .remove/.probe for every
+	* recovery level (it is gated only on mxman_recovery_disabled()), and
+	* that context is allowed to block.
+	*
+	* Until then sdev->recovery_status is set and the HIP is blocked, so
+	* in-flight wondertap ops fail safely rather than touching the chip.
+	*/
 #ifndef SCSC_SEP_VERSION
 	SLSI_INFO_NODEV("Sending SLSI_NL80211_SUBSYSTEM_RESTART_EVENT\n");
 	slsi_vendor_event(sdev, SLSI_NL80211_SUBSYSTEM_RESTART_EVENT, error, strlen(error));
@@ -295,6 +313,9 @@ void slsi_wlan_service_probe(struct scsc_mx_module_client *module_client, struct
 	char buf[SCSC_LOG_FAPI_VERSION_SIZE];
 #endif
 	char    log_to_sys_error_buffer[128] = { 0 };
+#if CONFIG_SCSC_WLAN_WONDERTAP
+	int ret;
+#endif
 
 	SLSI_UNUSED_PARAMETER(module_client);
 
@@ -325,6 +346,14 @@ void slsi_wlan_service_probe(struct scsc_mx_module_client *module_client, struct
 		sdev->fail_reported = false;
 		sdev->recovery_status = 0;
 		mutex_unlock(&slsi_start_mutex);
+#if CONFIG_SCSC_WLAN_WONDERTAP
+		/* Outside slsi_start_mutex: component_add() runs wonder's
+		* master bind, which calls back into our ops.
+		*/
+		ret = slsi_wondertap_register(sdev);
+		if (ret)
+			SLSI_WARN_NODEV("Wondertap provider re-registration failed (%d)", ret);
+#endif
 		blocking_notifier_call_chain(&slsi_wlan_notifier, SCSC_WIFI_CHIP_READY, sdev);
 		mutex_lock(&slsi_start_mutex);
 		complete_all(&sdev->recovery_completed);
@@ -354,7 +383,18 @@ void slsi_wlan_service_probe(struct scsc_mx_module_client *module_client, struct
 		}
 
 		cm_ctx.sdev = sdev; /* TODO: For now. */
-
+#if CONFIG_SCSC_WLAN_WONDERTAP
+		/* component_add() takes component_mutex, and the teardown side
+		 * holds component_mutex while descending to slsi_start_mutex.
+		 * Registering under slsi_start_mutex would be an AB-BA against a
+		 * concurrent slsi_wondertap_unregister().
+		 */
+		mutex_unlock(&slsi_start_mutex);
+		ret = slsi_wondertap_register(sdev);
+		if (ret)
+			SLSI_WARN_NODEV("Wondertap provider registration failed (%d)\n", ret);
+		mutex_lock(&slsi_start_mutex);
+#endif
 		atomic_set(&sdev->cm_if.cm_if_state, SCSC_WIFI_CM_IF_STATE_PROBING);
 		get_device(dev);
 
@@ -504,7 +544,25 @@ static void slsi_wlan_service_remove(struct scsc_mx_module_client *module_client
 		mutex_lock(&slsi_start_mutex);
 		reinit_completion(&sdev->recovery_stop_completion);
 		mutex_unlock(&slsi_start_mutex);
-
+#if CONFIG_SCSC_WLAN_WONDERTAP
+		/* Deferred here from wlan_stop_on_failure_v2(), which runs under
+		 * srvman->service_list_mutex and may not block on rtnl_lock.
+		 *
+		 * Placed at the END of the recovery branch on purpose: removing
+		 * wondertap0 drives slsi_stop_net_dev() -> slsi_stop_chip() ->
+		 * slsi_sm_wlan_service_stop(), which in the BLOCKED state waits
+		 * for recovery_remove_completion - signalled by this very
+		 * function at the top of the level-8 block. By now the framework
+		 * has stopped and device_state is no longer STARTED, so
+		 * slsi_stop_chip() returns immediately.
+		 *
+		 * Kept outside the level==PANIC block so that register() and
+		 * unregister() stay paired for every reset level; a relay that
+		 * is up always forces level 8 anyway (see
+		 * slsi_reset_level_force_to_7_needed()).
+		 */
+		slsi_wondertap_unregister(sdev);
+#endif
 	} else {
 		SLSI_INFO_NODEV("WLAN service remove\n");
 
@@ -522,7 +580,14 @@ static void slsi_wlan_service_remove(struct scsc_mx_module_client *module_client
 			SLSI_INFO_NODEV("state-event error %d\n", state);
 			return;
 		}
-
+#if CONFIG_SCSC_WLAN_WONDERTAP
+		/* See wlan_stop_on_failure_v2(): component_del() must not run
+		 * under slsi_start_mutex.
+		 */
+		mutex_unlock(&slsi_start_mutex);
+		slsi_wondertap_unregister(sdev);
+		mutex_lock(&slsi_start_mutex);
+#endif
 		service_clean_up_locked(sdev);
 		mutex_unlock(&slsi_start_mutex);
 	}

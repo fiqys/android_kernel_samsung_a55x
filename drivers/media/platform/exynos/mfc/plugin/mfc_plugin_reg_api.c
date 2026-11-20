@@ -282,26 +282,26 @@ bool mfc_fg_is_shadow_avail(struct mfc_core *core, struct mfc_core_ctx *core_ctx
 	}
 
 	if (queued_count >= MFC_FG_NUM_SHADOW_REGS) {
-		mfc_debug(2, "[PLUGIN] fg queue is full(%d >= %d)\n",
-			  queued_count, MFC_FG_NUM_SHADOW_REGS);
+		mfc_debug(5, "[PLUGIN] fg queue is full(%d >= %d)\n",
+			queued_count, MFC_FG_NUM_SHADOW_REGS);
 		return false;
 	}
 
 	if (MFC_CORE_READL(REG_FG_RDMA_DATA_FORMAT) !=
-	    __mfc_plugin_set_pixel_format(ctx, ctx->internal_fmt)) {
+		__mfc_plugin_set_pixel_format(ctx, ctx->internal_fmt)) {
 		mfc_debug(2, "[PLUGIN] RDMA format is different\n");
 		return false;
 	}
 
 	if (MFC_CORE_READL(REG_FG_WDMA_LUM_DATA_FORMAT) !=
-	    __mfc_plugin_set_pixel_format(ctx, ctx->dst_fmt)) {
+		__mfc_plugin_set_pixel_format(ctx, ctx->dst_fmt)) {
 		mfc_debug(2, "[PLUGIN] WDMA format is different\n");
 		return false;
 	}
 
 	if (core->curr_core_ctx_is_drm != ctx->is_drm) {
 		mfc_debug(2, "[PLUGIN] protection is different(curr: %s)\n",
-			  core->curr_core_ctx_is_drm ? "secure" : "normal");
+			core->curr_core_ctx_is_drm ? "secure" : "normal");
 		return false;
 	}
 

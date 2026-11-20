@@ -77,24 +77,33 @@ void mfc_butler_worker(struct work_struct *work)
 
 	dev = container_of(work, struct mfc_dev, butler_work);
 
+	if (!dev->multi_core_inst_bits) {
+		mfc_rm_request_work(dev, MFC_WORK_BUTLER, NULL);
+		return;
+	}
+
 	/* If there is multi core instance, it has high priority */
+	mutex_lock(&dev->mfc_mutex);
 	if (dev->multi_core_inst_bits) {
 		i = __ffs(dev->multi_core_inst_bits);
 		ctx = dev->ctx[i];
 		if (!ctx) {
 			mfc_dev_err("[RM] There is no ctx\n");
+			mutex_unlock(&dev->mfc_mutex);
 			return;
 		}
 
 		core = mfc_get_main_core(dev, ctx);
 		if (!core) {
 			mfc_ctx_debug(2, "[RM] There is no main core\n");
+			mutex_unlock(&dev->mfc_mutex);
 			return;
 		}
 
 		core_ctx = core->core_ctx[ctx->num];
 		if (!core_ctx) {
 			mfc_ctx_debug(2, "[RM] There is no core_ctx\n");
+			mutex_unlock(&dev->mfc_mutex);
 			return;
 		}
 
@@ -107,13 +116,12 @@ void mfc_butler_worker(struct work_struct *work)
 		 * can be deinitialized through MFC Butler.
 		 */
 		if (IS_NEED_BUTLER(ctx, core_ctx)) {
-			mfc_ctx_debug(3, "[2CORE] need to request work (op_mode: %d, state: %d)",
+			mfc_ctx_debug(2, "[2CORE] need to request work (op_mode: %d, state: %d)",
 					ctx->op_mode, core_ctx->state);
 			mfc_rm_request_work(dev, MFC_WORK_TRY, ctx);
 		}
-	} else {
-		mfc_rm_request_work(dev, MFC_WORK_BUTLER, NULL);
 	}
+	mutex_unlock(&dev->mfc_mutex);
 }
 
 static void __mfc_deinit_dec_ctx(struct mfc_ctx *ctx)
@@ -1272,8 +1280,7 @@ static int mfc_probe(struct platform_device *pdev)
 	/* end of node setting*/
 
 	/* instance migration worker */
-	dev->migration_wq = alloc_workqueue("mfc/inst_migration", WQ_UNBOUND
-					| WQ_MEM_RECLAIM | WQ_HIGHPRI, 1);
+	dev->migration_wq = alloc_workqueue("mfc/inst_migration", WQ_UNBOUND | WQ_HIGHPRI, 1);
 	if (dev->migration_wq == NULL) {
 		dev_err(&pdev->dev, "failed to create workqueue for migration wq\n");
 		goto err_migration_work;
@@ -1281,8 +1288,7 @@ static int mfc_probe(struct platform_device *pdev)
 	INIT_WORK(&dev->migration_work, mfc_rm_migration_worker);
 
 	/* main butler worker */
-	dev->butler_wq = alloc_workqueue("mfc/butler", WQ_UNBOUND
-					| WQ_MEM_RECLAIM | WQ_HIGHPRI, 1);
+	dev->butler_wq = alloc_workqueue("mfc/butler", WQ_UNBOUND | WQ_HIGHPRI, 1);
 	if (dev->butler_wq == NULL) {
 		dev_err(&pdev->dev, "failed to create workqueue for butler\n");
 		goto err_butler_wq;

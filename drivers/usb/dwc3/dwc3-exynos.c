@@ -69,6 +69,8 @@ EXPORT_SYMBOL_GPL(xhci_pre_alloc);
 void __iomem		*usb3_portsc;
 EXPORT_SYMBOL_GPL(usb3_portsc);
 
+bool g_vbus_active;
+EXPORT_SYMBOL_GPL(g_vbus_active);
 /* -------------------------------------------------------------------------- */
 /*struct dwc3_exynos_rsw {
 	struct otg_fsm		*fsm;
@@ -618,6 +620,7 @@ int dwc3_exynos_id_event(struct device *dev, int state)
 	if (!exynos)
 		return -ENOENT;
 
+	exynos->id_active = !state;
 	if (!exynos->usb_data_enabled) {
 		dev_info(exynos->dev, "skip the notification due to USB enumeration disabled\n");
 		return NOTIFY_OK;
@@ -655,6 +658,8 @@ int dwc3_exynos_vbus_event(struct device *dev, bool vbus_active)
 		dev_err(dev, "%s: exynos is NULL!!\n", __func__);
 		return -ENOENT;
 	}
+
+	g_vbus_active = vbus_active;
 
 	if (!exynos->usb_data_enabled) {
 		dev_info(exynos->dev, "skip the notification due to USB enumeration disabled\n");

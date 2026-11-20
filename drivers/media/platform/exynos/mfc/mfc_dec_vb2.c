@@ -118,7 +118,7 @@ static int mfc_dec_queue_setup(struct vb2_queue *vq,
 			alloc_devs[0] = dev->device;
 		} else {
 			for (i = 0; i < ctx->dst_fmt->num_planes; i++) {
-				psize[i] = raw->plane_size[i];
+				psize[i] = ctx->min_dpb_size[i];
 				alloc_devs[i] = dev->device;
 			}
 		}
@@ -380,8 +380,7 @@ static void mfc_dec_buf_queue(struct vb2_buffer *vb)
 				buf->addr[0][0]);
 		mutex_unlock(&ctx->op_mode_mutex);
 
-		if (vb->memory == V4L2_MEMORY_DMABUF && !ctx->is_drm &&
-			mfc_rm_query_state(ctx, SMALLER, MFCINST_HEAD_PARSED))
+		if (vb->memory == V4L2_MEMORY_DMABUF && !ctx->is_drm)
 			stream_vir = vb2_plane_vaddr(vb, 0);
 
 		buf->vir_addr[0] = stream_vir;
