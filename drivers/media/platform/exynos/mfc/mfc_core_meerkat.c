@@ -542,7 +542,6 @@ void __mfc_dump_buffer_info(struct mfc_core *core)
 	struct mfc_ctx *ctx;
 	struct mfc_core_ctx *core_ctx;
 	struct mfc_buf *src_mb;
-	unsigned char *stream_vir = NULL;
 	unsigned int strm_size = 0;
 
 	dev_err(core->device, "-----------dumping MFC buffer info (fault at: %#llx)\n",
@@ -610,10 +609,9 @@ void __mfc_dump_buffer_info(struct mfc_core *core)
 				strm_size = 500;
 			dev_err(core->device, "decoder src %#llx dump (size %d)\n",
 					src_mb->addr[0][0], strm_size);
-			stream_vir = vb2_plane_vaddr(&src_mb->vb.vb2_buf, 0);
-			if (stream_vir)
+			if (src_mb->vir_addr[0])
 				print_hex_dump(KERN_ERR, "src: ", DUMP_PREFIX_OFFSET, 32, 4,
-						stream_vir, strm_size, false);
+						src_mb->vir_addr[0], strm_size, false);
 		}
 	} else if (ctx->type == MFCINST_ENCODER) {
 		dev_err(core->device, "Encoder SRC %dplane, [0]:%#llx++%#x, [1]:%#llx++%#x, [2]:%#llx++%#x\n",

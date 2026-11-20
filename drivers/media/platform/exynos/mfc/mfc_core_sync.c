@@ -296,17 +296,17 @@ static int __mfc_dec_ctx_ready_set_bit(struct mfc_core_ctx *core_ctx,
 		(ctx->wait_state == WAIT_NONE && dst_buf_cnt))
 		is_ready = 1;
 
-	/* Resolution change
+	/*
+	 * Resolution change
 	 * In the case of 2core DRC, state could be SWITCH_TO_SINGLE.
 	 * After subcore deinit, state will be changed to SINGLE.
 	 */
 	else if ((core_ctx->state == MFCINST_RES_CHANGE_INIT ||
-		core_ctx->state == MFCINST_RES_CHANGE_FLUSH ||
-		core_ctx->state == MFCINST_RES_CHANGE_FLUSH_FINISHED) && dst_buf_cnt &&
+		core_ctx->state == MFCINST_RES_CHANGE_FLUSH) && dst_buf_cnt &&
 		(IS_SINGLE_MODE(ctx) || ctx->op_mode == MFC_OP_SWITCH_TO_SINGLE))
 		is_ready = 1;
 
-	else if (core_ctx->state == MFCINST_RES_CHANGE_END && src_buf_cnt)
+	else if ((core_ctx->state == MFCINST_RES_CHANGE_END) && src_buf_cnt)
 		is_ready = 1;
 
 	return is_ready;

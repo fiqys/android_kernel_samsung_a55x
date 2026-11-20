@@ -353,6 +353,7 @@ static void test_slsi_hip_transmit_frame(struct kunit *test)
 	sdev->hip.hip_priv->hip4_wake_lock_tx.ws = kunit_kzalloc(test, sizeof(struct wakeup_source), GFP_KERNEL);
 	sdev->hip.hip_priv->scbrd_base = &scbrd_base;
 	wakeup_source_add(sdev->hip.hip_priv->hip4_wake_lock_tx.ws);
+	atomic_set(&sdev->hip.is_hip_priv_valid, 1);
 
 	KUNIT_EXPECT_EQ(test, 0, slsi_hip_transmit_frame(&sdev->hip, skb, true, 0, 1, 1));
 }

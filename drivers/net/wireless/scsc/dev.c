@@ -62,6 +62,10 @@
 #include "mlme.h"
 #endif
 
+#if CONFIG_SCSC_WLAN_WONDERTAP
+#include "slsi_wondertap.h"
+#endif
+
 char *slsi_mib_file = "wlan.hcf";
 module_param_named(mib_file, slsi_mib_file, charp, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(mib_file, "mib data filename");
@@ -550,7 +554,10 @@ struct slsi_dev *slsi_dev_attach(struct device *dev, struct scsc_mx *core, struc
 #ifdef SLSI_TEST_DEV
 	slsi_init_netdev_mac_addr(sdev);
 #endif
-	slsi_rx_ba_init(sdev);
+	if (slsi_rx_ba_init(sdev)!=0) {
+		SLSI_ERR(sdev, "failed to init ba. \n");
+		goto err_inetaddr_registered;
+	}
 
 	if (slsi_netif_register(sdev, sdev->netdev[SLSI_NET_INDEX_WLAN], is_cfg80211) != 0) {
 		SLSI_ERR(sdev, "failed to register with wlan netdev\n");
@@ -817,6 +824,7 @@ void slsi_dev_detach(struct slsi_dev *sdev)
 #ifdef CONFIG_SCSC_WLAN_TX_API
 	slsi_dev_detach_post(sdev);
 #endif
+	slsi_rx_ba_deinit(sdev);
 	SLSI_DBG2(sdev, SLSI_INIT_DEINIT, "Free cfg80211\n");
 	slsi_cfg80211_free(sdev);
 }
@@ -824,6 +832,11 @@ void slsi_dev_detach(struct slsi_dev *sdev)
 int __init slsi_dev_load(void)
 {
 	SLSI_INFO_NODEV("Loading Maxwell Wi-Fi driver\n");
+
+#if CONFIG_SCSC_WLAN_WONDERTAP
+	if (slsi_wondertap_pdrv_register())
+		SLSI_INFO_NODEV("slsi_wondertap_pdrv_register failed - continuing\n");
+#endif
 
 	if (slsi_udi_init())
 		SLSI_INFO_NODEV("Failed to init udi - continuing\n");
@@ -882,7 +895,9 @@ void __exit slsi_dev_unload(void)
 	sap_test_deinit();
 
 	slsi_sm_service_driver_unregister();
-
+#if CONFIG_SCSC_WLAN_WONDERTAP
+	slsi_wondertap_pdrv_unregister();
+#endif
 	slsi_udi_deinit();
 
 #if defined(CONFIG_SCSC_WLAN_TAS)

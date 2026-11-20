@@ -1368,6 +1368,15 @@ void slsi_vif_cleanup(struct slsi_dev *sdev, struct net_device *dev, bool hw_ava
 	case FAPI_VIFTYPE_MONITOR:
 		slsi_stop_monitor_mode(sdev, dev);
 		break;
+#if CONFIG_SCSC_WLAN_WONDERTAP
+	case FAPI_VIFTYPE_RELAY:
+		SLSI_DBG1(sdev, SLSI_INIT_DEINIT, "cleanup RELAY vif, hw_available=%d\n",
+			  hw_available);
+		if (hw_available && slsi_mlme_del_vif(sdev, dev) != 0)
+			SLSI_NET_ERR(dev, "slsi_mlme_del_vif failed\n");
+		slsi_vif_deactivated(sdev, dev);
+		break;
+#endif
 	default:
 		break;
 	}
@@ -7010,12 +7019,23 @@ void slsi_fill_enhanced_arp_out_of_order_drop_counter(struct net_device *dev, st
 {
 	struct slsi_skb_cb *skb_cb = (struct slsi_skb_cb *)skb->cb;
 	struct netdev_vif *ndev_vif = netdev_priv(dev);
+	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
 	struct sk_buff_head msdu_list;
 	struct slsi_peer *peer = NULL;
 	struct ethhdr *eth_hdr;
-	bool is_amsdu = skb_cb->is_amsdu;
+	bool is_amsdu = false;
 	bool amsdu_packet_drop = false;
 
+	/* The BA drop path hands us the original 802.11 frame; read the A-MSDU flag
+	 * then convert it to ethernet (in place) before inspecting the ARP payload.
+	 */
+	if (skb_cb->is_80211_frame) {
+		is_amsdu = slsi_80211_is_amsdu(hdr);
+		if (slsi_get_msdu_frame(dev, skb)) {
+			SLSI_NET_WARN(dev, "Packet dropped (invalid 802.11 data frame)\n");
+			return;
+		}
+	}
 	__skb_queue_head_init(&msdu_list);
 
 	eth_hdr = (struct ethhdr *)skb->data;

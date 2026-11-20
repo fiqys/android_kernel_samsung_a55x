@@ -441,7 +441,11 @@ int slsi_tx_data(struct slsi_dev *sdev, struct net_device *dev, struct sk_buff *
 #endif
 
 	/* Align mac_header with skb->data */
+#ifdef CONFIG_SCSC_WLAN_WONDERTAP
+	if (ndev_vif->ifnum != SLSI_NET_INDEX_RELAY && skb_headroom(skb) != skb->mac_header) {
+#else
 	if (skb_headroom(skb) != skb->mac_header) {
+#endif
 		SLSI_NET_DBG3(dev, SLSI_TX, "align mac_header headroom (%d) mac_header (%d)\n", skb_headroom(skb), skb->mac_header);
 		skb_pull(skb, skb->mac_header - skb_headroom(skb));
 	}

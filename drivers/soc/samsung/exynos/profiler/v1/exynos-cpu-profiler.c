@@ -436,11 +436,20 @@ static void cpupro_hook_freq_change(void *data, struct cpufreq_policy *policy)
 static int cpupro_pm_update(int flag)
 {
 	int cpu = raw_smp_processor_id();
+	unsigned long irqflag;
+
 	struct cpu_profiler *cpupro = per_cpu_ptr(profiler.cpus, cpu);
 
-	if (!cpupro || !cpupro->enabled)
+	if (!cpupro) {
 		return NOTIFY_OK;
+	}
 
+	raw_spin_lock_irqsave(&cpupro->lock, irqflag);
+	if (!cpupro->enabled) {
+		raw_spin_unlock_irqrestore(&cpupro->lock, irqflag);
+		return NOTIFY_OK;
+	}
+	raw_spin_unlock_irqrestore(&cpupro->lock, irqflag);
 	cpupro_update_time_in_freq(cpu, flag, -1);
 
 	return NOTIFY_OK;

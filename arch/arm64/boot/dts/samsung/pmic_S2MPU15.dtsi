@@ -349,6 +349,6 @@
 #endif
 
 
-/* /home/dpi/qb5_8814/workspace/P4_1716/android/kernel/kmodule/pmic/slsi/S2MPU15/dts/pmic_S2MPU15.a55x.dtsi */
+/* /home/dpi/qb5_8815/workspace/P4_1716/android/kernel/kmodule/pmic/slsi/S2MPU15/dts/pmic_S2MPU15.a55x.dtsi */
 /delete-node/ &l19_reg;
 /delete-node/ &l21_reg;

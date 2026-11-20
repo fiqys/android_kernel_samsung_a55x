@@ -206,7 +206,7 @@ int is_buf_init(struct vb2_buffer *vb)
 	return 0;
 }
 
-static int __update_subbuf(struct camera2_node *node, struct is_vb2_buf *vbuf, struct is_sub_dma_buf *sdbuf)
+static int __update_subbuf(struct camera2_node *node, struct is_vb2_buf *vbuf, struct is_sub_dma_buf *sdbuf, u32 length)
 {
 	int ret;
 	struct is_mem *mem;
@@ -215,7 +215,11 @@ static int __update_subbuf(struct camera2_node *node, struct is_vb2_buf *vbuf, s
 
 	mem = is_hw_get_iommu_mem(node->vid);
 	node->result = 0;
-	num_i_planes = node->buf.length - NUM_OF_META_PLANE;
+	num_i_planes = length - NUM_OF_META_PLANE;
+	if (num_i_planes > IS_MAX_PLANES) {
+		err("Invalid the image plane number %d", num_i_planes);
+		return -EINVAL;
+	}
 
 	sdbuf->vid = node->vid;
 	sdbuf->num_plane = num_i_planes;
@@ -265,6 +269,7 @@ static int _is_queue_subbuf_prepare(struct device *dev,
 	struct is_sub_dma_buf *sdbuf;
 	u32 index = vb->index;
 	u32 n;
+	u32 length;
 	unsigned int dbg_draw_digit_ctrl;
 
 	mdbgv_lvn(3, "[%s][I%d]subbuf_prepare\n", vctx, video,
@@ -296,7 +301,8 @@ static int _is_queue_subbuf_prepare(struct device *dev,
 
 		sdbuf = &sbuf->leader;
 
-		ret = __update_subbuf(node, vbuf, sdbuf);
+		length = node->buf.length;
+		ret = __update_subbuf(node, vbuf, sdbuf, length);
 		if (ret) {
 			mverr("[%s][%s][I%d]Failed to __update_subbuf", vctx, video,
 					queue->name, vn_name[node->vid], index);
@@ -312,8 +318,8 @@ static int _is_queue_subbuf_prepare(struct device *dev,
 		if (!node->request)
 			continue;
 
-		if (node->buf.length > IS_MAX_PLANES ||
-			node->vid >= IS_VIDEO_MAX_NUM) {
+		length = node->buf.length;
+		if (node->vid >= IS_VIDEO_MAX_NUM) {
 			mverr("[%s][I%d]subbuf_prepare: invalid output[%d] (req:%d, vid:%d, length:%d) input (req:%d, vid:%d)\n",
 				vctx, video,
 				queue->name, index,
@@ -327,10 +333,10 @@ static int _is_queue_subbuf_prepare(struct device *dev,
 			 * So, temporarily BUG() is used here.
 			 */
 			BUG();
-		} else if (!node->buf.length) {
+		} else if (!length || length > IS_MAX_PLANES) {
 			mdbgv_lvn(2, "[%s][%s][I%d]subbuf_prepare: Invalid buf.length %d",
 					vctx, video, queue->name, vn_name[node->vid],
-					index, node->buf.length);
+					index, length);
 			continue;
 		}
 
@@ -339,7 +345,7 @@ static int _is_queue_subbuf_prepare(struct device *dev,
 
 		sdbuf = &sbuf->sub[n];
 
-		ret = __update_subbuf(node, vbuf, sdbuf);
+		ret = __update_subbuf(node, vbuf, sdbuf, length);
 		if (ret) {
 			mverr("[%s][%s][I%d]Failed to __update_subbuf", vctx, video,
 					queue->name, vn_name[node->vid], index);
@@ -474,9 +480,6 @@ int is_buf_prepare(struct vb2_buffer *vb)
 	} else {
 		/* Capture node */
 		frame->stream = (struct camera2_stream *)kva_meta;
-
-		/* TODO : Change type of address into ulong */
-		frame->stream->address = (u32)kva_meta;
 	}
 
 	if (IS_ENABLED(LOGICAL_VIDEO_NODE)) {

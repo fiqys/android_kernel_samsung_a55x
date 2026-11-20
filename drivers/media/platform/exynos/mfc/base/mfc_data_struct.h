@@ -204,8 +204,6 @@ enum mfc_inst_state {
 	MFCINST_FINISHED,
 	MFCINST_ABORT_INST,
 	MFCINST_DPB_FLUSHING,
-	MFCINST_SPECIAL_PARSING,
-	MFCINST_SPECIAL_PARSING_NAL,
 	MFCINST_MOVE_INST,
 	MFCINST_BUF_INIT_BUT_MULTI_MODE_NOT_CHECKED_YET,
 };
@@ -233,6 +231,7 @@ enum mfc_dec_wait_state {
 	WAIT_NONE	= 0,
 	WAIT_G_FMT	= (1 << 0),
 	WAIT_STOP	= (1 << 1),
+	WAIT_G_CROP	= (1 << 2),
 };
 
 /**
@@ -395,6 +394,7 @@ enum mfc_request_work {
 	MFC_WORK_BUTLER			= 0x1,
 	MFC_WORK_TRY			= 0x2,
 	MFC_WORK_POST_PROCESSING	= 0x3,
+	MFC_WORK_CHANGE_STATE		= 0x4,
 };
 
 enum mfc_qos_control {
@@ -1574,8 +1574,6 @@ struct mfc_core_ops {
 			enum mfc_request_work work,
 			struct mfc_ctx *ctx);
 	/* for DEC */
-	void (*instance_csd_parsing)(struct mfc_core *core,
-			struct mfc_ctx *ctx);
 	void (*instance_dpb_flush)(struct mfc_core *core,
 			struct mfc_ctx *ctx);
 	int (*instance_init_buf)(struct mfc_core *core,

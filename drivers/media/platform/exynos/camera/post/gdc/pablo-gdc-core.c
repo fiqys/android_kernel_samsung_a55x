@@ -999,12 +999,11 @@ static int gdc_v4l2_s_ext_ctrls(struct file * file, void * priv,
 			ret = gdc->sys_ops->copy_from_user(ctx->crop_param, ext_ctrl->ptr,
 							 sizeof(struct gdc_crop_param));
 			index = GET_GDC_IDX(ctx->crop_param->buf_index);
-			/* Check if out of crop_param array */
-			if (index >= GDC_MAX_BUFS) {
-				dev_err(gdc->dev, "Invalid buf_index %d, maximum is (%d)\n", index,
-					GDC_MAX_BUFS);
-				index = GET_GDC_IDX(ctx->crop_param->buf_index %
-						    (GDC_MAX_BUFS - 1));
+			/* Adjust buf_index if out of crop_param array */
+				if (ctx->crop_param->buf_index >= GDC_MAX_BUFS) {
+					dev_err(gdc->dev, "adjust buf_index(%d) to index(%d)\n",
+						ctx->crop_param->buf_index, ctx->crop_param->buf_index % GDC_MAX_BUFS);
+					ctx->crop_param->buf_index = ctx->crop_param->buf_index % GDC_MAX_BUFS;
 			}
 			/*
 			 * Copy memory to keep the data for multi-buffer

@@ -28,19 +28,38 @@
 #define IS_LATEST_ROM_VERSION_M	'M'
 #define IS_READ_MAX_EEP_CAL_SIZE (0x8000) /* 32KB */
 
+char dualized_sensor_name[SENSOR_POSITION_MAX][20];
+
 int is_sec_get_rom_info(struct is_vendor_rom **rom_info, int rom_id)
 {
 	struct is_core *core = is_get_is_core();
 	struct is_vendor_private *vendor_priv = core->vendor.private_data;
 
-	if (rom_id < ROM_ID_MAX)
-		*rom_info = &vendor_priv->rom[rom_id];
-	else
+	if (rom_id < ROM_ID_MAX) {
+		if (!vendor_priv->use_dualized_sensor[rom_id])
+			*rom_info = &vendor_priv->rom[rom_id];
+		else
+			*rom_info = &vendor_priv->dualized_rom[rom_id];
+	} else
 		*rom_info = NULL;
 
 	return 0;
 }
 EXPORT_SYMBOL_GPL(is_sec_get_rom_info);
+
+int is_sec_get_dualized_rom_info(struct is_vendor_rom **rom_info, int rom_id)
+{
+	struct is_core *core = is_get_is_core();
+	struct is_vendor_private *vendor_priv = core->vendor.private_data;
+
+	if (rom_id < ROM_ID_MAX)
+		*rom_info = &vendor_priv->dualized_rom[rom_id];
+	else
+		*rom_info = NULL;
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(is_sec_get_dualized_rom_info);
 
 bool is_sec_check_awb_lsc_crc32_post_sec2lsi(char *buf, int position)
 {
@@ -844,7 +863,7 @@ int is_sec_read_eeprom(struct is_vendor_rom *rom_info, char *buf, int rom_id)
 	int ret = 0;
 	u32 read_addr;
 
-	client = vendor_priv->rom[rom_id].client;
+	client = vendor_priv->rom[rom_id].client[0];
 	cal_size = rom_info->rom_size;
 
 	rom_info->read_error = false;
@@ -904,6 +923,8 @@ int is_sec_read_otprom(struct is_vendor_rom *rom_info, char *buf, int rom_id)
 
 	is_vendor_get_position_from_rom_id(rom_id, &position);
 	is_vendor_get_module_from_position(position, &module);
+	int sensor_id = is_vendor_get_sensor_id_from_position(position);
+	int dualized_sensorid = is_vendor_get_dualized_sensorid(position);
 
 	if (!module) {
 		err("There is no module (position : %d)", position);
@@ -921,7 +942,11 @@ int is_sec_read_otprom(struct is_vendor_rom *rom_info, char *buf, int rom_id)
 	}
 
 	if (sensor_peri->cis.client) {
-		vendor_priv->rom[rom_id].client = sensor_peri->cis.client;
+		if (sensor_id == dualized_sensorid)
+			vendor_priv->dualized_rom[rom_id].client[0] = sensor_peri->cis.client;
+		else
+			vendor_priv->rom[rom_id].client[0] = sensor_peri->cis.client;
+
 		info("%s sensor client will be used for otprom", __func__);
 	}
 
@@ -962,11 +987,11 @@ int is_sec_read_module_id(struct is_vendor_rom *rom_info, char *module_id, int r
 	char *temp_buf = NULL;
 	int ret = 0;
 
-	client = vendor_priv->rom[rom_id].client;
+	client = vendor_priv->rom[rom_id].client[0];
 
-	if (rom_info->rom_type == ROM_TYPE_EEPROM)
+	if (rom_info->rom_type == ROM_TYPE_EEPROM) {
 		ret = is_i2c_read(client, module_id, rom_info->rom_header_module_id_addr, IS_MODULE_ID_SIZE);
-	else if (rom_info->rom_type == ROM_TYPE_OTPROM) {
+	} else if (rom_info->rom_type == ROM_TYPE_OTPROM) {
 		temp_buf = pablo_zalloc(rom_info->rom_size, GFP_KERNEL);
 		if (!temp_buf) {
 			err("Cannot alloc temp buf for OTPROM read");
@@ -980,8 +1005,7 @@ int is_sec_read_module_id(struct is_vendor_rom *rom_info, char *module_id, int r
 		}
 		memcpy(module_id, &temp_buf[rom_info->rom_header_module_id_addr], IS_MODULE_ID_SIZE);
 		pablo_free(temp_buf);
-	}
-	else {
+	} else {
 		err("ROM TYPE is invalid [%d]", rom_info->rom_type);
 		return ret;
 	}
@@ -1006,7 +1030,7 @@ int is_sec_read_header_verion(struct is_vendor_rom *rom_info, char *header_ver, 
 	int ret = 0;
 	char *temp_buf;
 
-	client = vendor_priv->rom[rom_id].client;
+	client = vendor_priv->rom[rom_id].client[0];
 
 	if (rom_info->rom_type == ROM_TYPE_EEPROM)
 		ret = is_i2c_read(client, header_ver, rom_info->rom_header_version_start_addr, IS_HEADER_VER_SIZE);
@@ -1024,8 +1048,7 @@ int is_sec_read_header_verion(struct is_vendor_rom *rom_info, char *header_ver, 
 		}
 		memcpy(header_ver, &temp_buf[rom_info->rom_header_version_start_addr], IS_HEADER_VER_SIZE);
 		pablo_free(temp_buf);
-	}
-	else {
+	} else {
 		err("%s ROM TYPE is invalid [%d]", __func__, rom_info->rom_type);
 		return ret;
 	}
@@ -1038,20 +1061,6 @@ int is_sec_read_header_verion(struct is_vendor_rom *rom_info, char *header_ver, 
 		header_ver[0], header_ver[1], header_ver[2], header_ver[3], header_ver[4]);
 
 	return ret;
-}
-
-int is_sec_probe_dualized_rom(struct is_vendor_rom *rom_info, char *buf, int rom_id)
-{
-	struct i2c_client *client;
-	struct is_core *core = is_get_is_core();
-	struct is_vendor_private *vendor_priv = core->vendor.private_data;
-
-	client = vendor_priv->rom[rom_id].client;
-	memcpy(rom_info->sensor_name, &buf[rom_info->sensor_name_addr], IS_SENSOR_NAME_SIZE);
-
-	rom_info->sensor_name[IS_SENSOR_NAME_SIZE] = '\0';
-
-	return is_vendor_dualized_rom_parse_dt(client->dev.of_node, rom_id);
 }
 
 int is_sec_read_rom(int rom_id)
@@ -1109,9 +1118,6 @@ int is_sec_read_rom(int rom_id)
 
 	rom_info->crc_retry_cnt = retry;
 
-	if (rom_info->check_dualize)
-		is_sec_probe_dualized_rom(rom_info, buf, rom_id);
-
 	is_sec_parse_rom_info(rom_info, buf, rom_id);
 
 	if (!is_sec_check_rom_ver(core, rom_id)) {
@@ -1133,53 +1139,123 @@ exit:
 	return ret;
 }
 
-/* TODO : move to dt */
-struct dualize_match_entry dualize_table[] = {
-	{ "M50EL", SENSOR_NAME_S5KGN5, "S5KGN5" },
-	{ "X50EL", SENSOR_NAME_S5KGNJ, "S5KGNJ" },
-};
-
 void is_sec_select_dualized_sensor(int rom_id)
 {
 	struct is_core *core = is_get_is_core();
 	struct is_vendor_private *vendor_priv = core->vendor.private_data;
 	struct is_vendor_rom *rom_info = NULL;
 	struct is_module_enum *module;
-	int pos, i, ret;
-	int table_size, module_header_len;
+	char **sensorinfo;
+	int num_val, dualized_sensorid;
+	int pos, ret;
+	int module_header_len;
 	char header_ver[IS_HEADER_VER_SIZE];
+	int dualized_rom_type;
+	int eeprom_retry = 3, otp_retry = 3;
 
 	is_sec_get_rom_info(&rom_info, rom_id);
 
+	info("%s : [rom_id:%d] check_dualize %d", __func__, rom_id, rom_info->check_dualize);
 	if (!rom_info->check_dualize)
 		return;
-
-	if (is_sec_read_header_verion(rom_info, header_ver, rom_id)) {
-		err("[rom_id:%d] fail to get header version", rom_id);
-		return;
-	}
 
 	for (pos = SENSOR_POSITION_REAR; pos < SENSOR_POSITION_MAX; pos++) {
 		ret = is_vendor_get_module_from_position(pos, &module);
 		if (ret || !module || module->pdata->rom_id != rom_id)
 			continue;
+		dualized_sensorid = vendor_priv->sensor_id[pos];
+check_next_sensor:
+		sensorinfo = argv_split(GFP_KERNEL, rom_info->dualized_sensorinfo, &num_val);
+		if (!sensorinfo) {
+			err("No argument!");
+			goto check_headerver;
+		}
 
-		table_size = ARRAY_SIZE(dualize_table);
-		for (i = 0; i < table_size; i++) {
-			module_header_len = strlen(dualize_table[i].module_header);
-			if (strncmp(header_ver, dualize_table[i].module_header, module_header_len) == 0) {
+		if (num_val == 2) {
+			dualized_rom_type = rom_info->rom_type;
+		} else if (num_val == 3) {
+			if (kstrtoint(sensorinfo[2], 0, &dualized_rom_type)) {
+				err("convert fail : sensor id(%s) so using main sensor as dualized", sensorinfo[1]);
+				goto keep_current_sensor;
+			}
+		} else {
+			err("invalid number of arguments. Using default sensor");
+			goto keep_current_sensor;
+		}
+
+		if (kstrtoint(sensorinfo[0], 0, &dualized_sensorid)) {
+			err("convert fail : sensor id(%s) so using main sensor as dualized", sensorinfo[1]);
+			goto keep_current_sensor;
+		}
+
+		strcpy(dualized_sensor_name[pos], sensorinfo[1]);
+
+check_headerver:
+		if (is_sec_read_header_verion(rom_info, header_ver, rom_id)) {
+			err("[rom_id:%d] fail to get header version of Current sensor", rom_id);
+			if (vendor_priv->sensor_id[pos] == dualized_sensorid) {
+				if (otp_retry--) {
+					is_sec_rom_power_off(core, rom_info->rom_power_position);
+					usleep_range(3000, 3010);
+					is_sec_rom_power_on(core, rom_info->rom_power_position);
+					goto check_headerver;
+				}
+				goto keep_current_sensor;
+			}
+
+			is_sec_rom_power_off(core, rom_info->rom_power_position); //Current sensor power off
+			//primary sensor retry
+			if (eeprom_retry--) {
+				is_sec_rom_power_on(core, rom_info->rom_power_position);
+				goto check_headerver;
+			}
+
+			vendor_priv->sensor_id[pos] = dualized_sensorid;
+			vendor_priv->sensor_name[pos] = dualized_sensor_name[pos];
+			is_sec_rom_power_on(core, rom_info->rom_power_position); //Dualized sensor power on
+			is_sec_get_dualized_rom_info(&rom_info, rom_id);
+			rom_info->rom_type = dualized_rom_type;
+			argv_free(sensorinfo);
+			goto check_next_sensor;
+		} else {
+			module_header_len = strlen(rom_info->sensor_headerver);
+			if (strncmp(header_ver, rom_info->sensor_headerver, module_header_len) == 0) {
 				info("%s: found! %s => %d\n",
-					__func__, dualize_table[i].module_header, dualize_table[i].sensor_id);
-				vendor_priv->sensor_id[pos] = dualize_table[i].sensor_id;
-				vendor_priv->sensor_name[pos] = dualize_table[i].sensor_name;
-				break;
+					__func__, rom_info->sensor_headerver, vendor_priv->sensor_id[pos]);
+				if (vendor_priv->sensor_id[pos] == dualized_sensorid)
+					vendor_priv->use_dualized_sensor[rom_id] = true;
+			} else {
+				if (vendor_priv->sensor_id[pos] == dualized_sensorid) {
+					vendor_priv->use_dualized_sensor[rom_id] = true;
+					//retry for wrong module id read for otp case
+					if (otp_retry--) {
+						is_sec_rom_power_off(core, rom_info->rom_power_position);
+						usleep_range(3000, 3010);
+						is_sec_rom_power_on(core, rom_info->rom_power_position);
+						goto check_headerver;
+					}
+					goto keep_current_sensor;
+				}
+				is_sec_rom_power_off(core, rom_info->rom_power_position); //Current sensor power off
+				vendor_priv->sensor_id[pos] = dualized_sensorid;
+				vendor_priv->sensor_name[pos] = dualized_sensor_name[pos];
+				is_sec_get_dualized_rom_info(&rom_info, rom_id);
+				rom_info->rom_type = dualized_rom_type;
+				is_sec_rom_power_on(core, rom_info->rom_power_position); //Dualized sensor power on
+				argv_free(sensorinfo);
+				goto check_next_sensor;
 			}
 		}
 
+keep_current_sensor:
+		if (sensorinfo)
+			argv_free(sensorinfo);
+
 		core->sensor[module->device].sensor_name = (char *)vendor_priv->sensor_name[pos];
-		info("%s: select sensor id: %d, name(%s)\n",
+		info("%s: selected sensor id: %d, name(%s)\n",
 			__func__, vendor_priv->sensor_id[pos], vendor_priv->sensor_name[pos]);
 	}
+
 }
 
 int is_sec_run_fw_sel(int rom_id)
@@ -1270,7 +1346,7 @@ int is_sec_cal_reload(void)
 
 	vendor_priv = core->vendor.private_data;
 	for (curr_rom_id = 0; curr_rom_id < ROM_ID_MAX; curr_rom_id++) {
-		if (!vendor_priv->rom[curr_rom_id].valid)
+		if (!vendor_priv->rom[curr_rom_id].valid[0])
 			continue;
 
 		is_sec_get_rom_info(&rom_info, curr_rom_id);

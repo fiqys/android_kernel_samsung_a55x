@@ -48,6 +48,7 @@
 #define IS_TOF_CAL_CAL_RESULT_OK	0x11
 
 #define AF_CAL_MAX 9
+#define AF_CAL_DISTANCE_MAX 10
 #define CROSSTALK_CAL_MAX (3 * 13)
 #define TOF_CAL_SIZE_MAX 10
 #define TOF_CAL_VALID_MAX 10
@@ -87,8 +88,8 @@ struct is_vendor_standard_cal {
 };
 
 struct is_vendor_rom {
-	struct i2c_client *client;
-	bool valid;
+	struct i2c_client *client[2];
+	bool valid[2];
 
 	char *buf;
 	char *sec_buf; /* sec_buf is used for storing original rom data, before standard cal sec2lsi conversion */
@@ -104,6 +105,9 @@ struct is_vendor_rom {
 	bool skip_header_loading;
 	bool ignore_cal_crc_error;
 	bool check_dualize;
+	bool is_dualized_cal;
+	char const *dualized_sensorinfo;
+	char const *sensor_headerver;
 
 	u32 crc_retry_cnt;
 	u32 rom_type;
@@ -146,8 +150,17 @@ struct is_vendor_rom {
 	int32_t rom_awb_module_addr;
 	int32_t rom_af_cal_addr[AF_CAL_MAX];
 	int32_t rom_af_cal_addr_len;
+	int32_t rom_af_distance_cal_addr[AF_CAL_DISTANCE_MAX];
+	int32_t rom_af_distance_cal_addr_len;
 	int32_t rom_paf_cal_start_addr;
 	int32_t sensor_name_addr;
+
+	/* dualized cal */
+	bool use_dualized_values;
+	u32 dualized_crc_check_list[IS_ROM_CRC_MAX_LIST];
+	u32 dualized_crc_check_list_len;
+	int32_t rom_dualized_af_cal_addr[AF_CAL_MAX];
+	int32_t rom_dualized_af_cal_addr_len;
 
 	/* standard cal */
 	bool use_standard_cal;
@@ -161,6 +174,8 @@ struct is_vendor_rom {
 	int32_t rom_sensor2_awb_module_addr;
 	int32_t rom_sensor2_af_cal_addr[AF_CAL_MAX];
 	int32_t rom_sensor2_af_cal_addr_len;
+	int32_t rom_sensor2_af_distance_cal_addr[AF_CAL_DISTANCE_MAX];
+	int32_t rom_sensor2_af_distance_cal_addr_len;
 	int32_t rom_sensor2_paf_cal_start_addr;
 
 	int32_t rom_dualcal_slave0_start_addr;

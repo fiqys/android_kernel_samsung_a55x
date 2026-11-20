@@ -444,7 +444,7 @@ static long is_dbufcon_prepare(struct is_vb2_buf *vbuf, struct device *dev)
 	struct vb2_buffer *vb = &vbuf->vb.vb2_buf;
 	unsigned int num_i_planes = vb->num_planes - NUM_OF_META_PLANE;
 	struct dma_buf *dbufcon;
-	int count;
+	int count[IS_MAX_PLANES] = { 0, };
 	int p, b, i;
 	long ret;
 
@@ -457,11 +457,11 @@ static long is_dbufcon_prepare(struct is_vb2_buf *vbuf, struct device *dev)
 			goto err_get_dbufcon;
 		}
 
-		count = CALL_DMABUF_CON_OPS(vbuf, get_count, dbufcon);
-		if (count < 0) {
+		count[p] = CALL_DMABUF_CON_OPS(vbuf, get_count, dbufcon);
+		if (count[p] < 0) {
 			ret = 0;
 			goto err_get_count;
-		} else if (count == 0) {
+		} else if (count[p] == 0) {
 			err("empty dmabuf-container of fd: %d", vb->planes[p].m.fd);
 			ret = -EINVAL;
 			goto err_empty_dbufcon;
@@ -474,18 +474,16 @@ static long is_dbufcon_prepare(struct is_vb2_buf *vbuf, struct device *dev)
 		}
 
 		/* IS_MAX_PLANES includes meta-planes */
-		if (((count * num_i_planes) + NUM_OF_META_PLANE)
-			> IS_MAX_PLANES) {
+		if (((count[p] * num_i_planes) + NUM_OF_META_PLANE) > IS_MAX_PLANES) {
 			err("out of range plane. require: %d > supported: %d",
-				(count * num_i_planes) + NUM_OF_META_PLANE,
-				IS_MAX_PLANES);
+				(count[p] * num_i_planes) + NUM_OF_META_PLANE, IS_MAX_PLANES);
 			ret = -EINVAL;
 			goto err_too_many_planes;
 
 		}
 
 		/* change the order of each plane by the order of buffer */
-		for (b = 0, i = p; b < count; b++, i = (b * num_i_planes) + p) {
+		for (b = 0, i = p; b < count[p]; b++, i = (b * num_i_planes) + p) {
 			vbuf->dbuf[i] = CALL_DMABUF_CON_OPS(vbuf, get_buffer, dbufcon, b);
 			if (IS_ERR_OR_NULL(vbuf->dbuf[i])) {
 				err("failed to get dmabuf-container's dmabuf: %d", b);
@@ -517,7 +515,7 @@ static long is_dbufcon_prepare(struct is_vb2_buf *vbuf, struct device *dev)
 		CALL_DMABUF_OPS(vbuf, put, dbufcon);
 	}
 
-	vbuf->num_merged_dbufs = count;
+	vbuf->num_merged_dbufs = count[0];
 
 	atomic_inc(&stats.cnt_dbuf_prepare);
 
@@ -555,10 +553,9 @@ err_get_dbufcon:
 
 	while (p-- > 0) {
 		dbufcon = CALL_DMABUF_OPS(vbuf, get, vb->planes[p].m.fd);
-		count = CALL_DMABUF_CON_OPS(vbuf, get_count, dbufcon);
 		CALL_DMABUF_OPS(vbuf, put, dbufcon);
 
-		for (b = 0, i = p; b < count; b++, i = (b * num_i_planes) + p) {
+		for (b = 0, i = p; b < count[p]; b++, i = (b * num_i_planes) + p) {
 			CALL_DMABUF_OPS(vbuf, unmap_attachment, vbuf->atch[i], vbuf->sgt[i], DMA_BIDIRECTIONAL);
 			CALL_DMABUF_OPS(vbuf, detach, vbuf->dbuf[i], vbuf->atch[i]);
 			CALL_DMABUF_OPS(vbuf, put, vbuf->dbuf[i]);
@@ -851,7 +848,7 @@ void is_subbuf_prepare(struct is_sub_dma_buf *buf, struct v4l2_plane *plane,
 		struct device *dev)
 {
 	struct dma_buf *dbuf;
-	int cnt = 0;
+	int cnt[IS_MAX_PLANES] = { 0, };
 	u32 num_p = buf->num_plane;
 	u32 p, b, i;
 	bool is_dbufcon = true;
@@ -865,11 +862,11 @@ void is_subbuf_prepare(struct is_sub_dma_buf *buf, struct v4l2_plane *plane,
 			goto err_get_dbufcon;
 		}
 
-		cnt = CALL_DMABUF_CON_OPS(buf, get_count, dbuf);
-		if (cnt < 0) {
+		cnt[p] = CALL_DMABUF_CON_OPS(buf, get_count, dbuf);
+		if (cnt[p] < 0) {
 			is_dbufcon = false;
-			cnt = 1;
-		} else if (cnt == 0) {
+			cnt[p] = 1;
+		} else if (cnt[p] == 0) {
 			err("[V%d][P%d]Empty dma_buf_container. fd %d",
 				buf->vid, p, plane[p].m.fd);
 			goto err_get_dbuf;
@@ -881,14 +878,13 @@ void is_subbuf_prepare(struct is_sub_dma_buf *buf, struct v4l2_plane *plane,
 			goto err_get_dbuf;
 		}
 
-		if ((cnt * num_p) > IS_MAX_PLANES) {
-			err("[V%d][P%d]Out of range plane. required %d > supported %d",
-				buf->vid, p,
-				(cnt * num_p), IS_MAX_PLANES);
+		if ((cnt[p] * num_p) > IS_MAX_PLANES) {
+			err("[V%d][P%d]Out of range plane. required %d > supported %d", buf->vid, p,
+				(cnt[p] * num_p), IS_MAX_PLANES);
 			goto err_get_dbuf;
 		}
 
-		for (b = 0, i = p; b < cnt; b++, i = (num_p * b) + p) {
+		for (b = 0, i = p; b < cnt[p]; b++, i = (num_p * b) + p) {
 			if (IS_ENABLED(DMABUF_CONTAINER) && is_dbufcon)
 				buf->dbuf[i] = CALL_DMABUF_CON_OPS(buf, get_buffer, dbuf, b);
 			else
@@ -937,7 +933,7 @@ void is_subbuf_prepare(struct is_sub_dma_buf *buf, struct v4l2_plane *plane,
 		CALL_DMABUF_OPS(buf, put, dbuf);
 	}
 
-	buf->num_buffer = cnt;
+	buf->num_buffer = cnt[0];
 
 	atomic_inc(&stats.cnt_subbuf_prepare);
 
@@ -950,7 +946,7 @@ err_get_dbufcon:
 	buf->num_buffer = 0;
 
 	while (p-- > 0) {
-		for (b = 0, i = p; b < cnt; b++, i = (b * num_p) + p) {
+		for (b = 0, i = p; b < cnt[p]; b++, i = (b * num_p) + p) {
 			CALL_DMABUF_OPS(buf, unmap_attachment, buf->atch[i], buf->sgt[i], DMA_BIDIRECTIONAL);
 			CALL_DMABUF_OPS(buf, detach, buf->dbuf[i], buf->atch[i]);
 			CALL_DMABUF_OPS(buf, put, buf->dbuf[i]);

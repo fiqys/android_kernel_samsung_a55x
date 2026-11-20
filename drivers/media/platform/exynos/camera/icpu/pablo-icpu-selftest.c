@@ -583,7 +583,7 @@ static int __set_msg(const char *val, const struct kernel_param *kp)
 		return ret;
 	}
 
-	if (num_data > 16) {
+	if (num_data > 16 || num_data < 0) {
 		ICPU_ERR("Max num of data is 16 but, %ld\n", num_data);
 		pablo_free(pbuf);
 		return -1;
@@ -657,6 +657,8 @@ static int __query_msg(char *buffer, const struct kernel_param *kp)
 		if (i >= 16)
 			continue;
 		for (j = 0; j < box->msg[0].num_data; j++) {
+			if (j >= 16)
+				break;
 			len += sprintf(buffer + len, "\t\t.data[%d]: 0x%x(dec. %d)\n", j,
 					box->msg[i].data[j], box->msg[i].data[j]);
 		}

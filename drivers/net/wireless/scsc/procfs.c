@@ -227,7 +227,7 @@ static ssize_t slsi_procfs_sta_bss_read(struct file *file,  char __user *user_bu
 	    ndev_vif->sta.vif_status == SLSI_VIF_STATUS_CONNECTED) {
 		const u8 *ssid_ie = cfg80211_find_ie(WLAN_EID_SSID, sta_bss->ies->data, sta_bss->ies->len);
 
-		if (ssid_ie) {
+		if (ssid_ie && ssid_ie[1] <= IEEE80211_MAX_SSID_LEN) {
 			memcpy(ssid, &ssid_ie[2], ssid_ie[1]);
 			ssid[ssid_ie[1]] = 0;
 		}

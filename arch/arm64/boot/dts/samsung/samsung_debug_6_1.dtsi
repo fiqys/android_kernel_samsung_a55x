@@ -73,7 +73,7 @@
 	};
 };
 
-/* /home/dpi/qb5_8814/workspace/P4_1716/android/kernel/kmodule/samsung/slsi/debug/6.1/samsung_debug_6_1._ap_slsi_s5e8845.dtsi */
+/* /home/dpi/qb5_8815/workspace/P4_1716/android/kernel/kmodule/samsung/slsi/debug/6.1/samsung_debug_6_1._ap_slsi_s5e8845.dtsi */
 
 &sec_debug_reset_reason {
 	rst_stat = "CLUSTER0_DBGRSTREQ0", "CLUSTER0_DBGRSTREQ1", "CLUSTER0_DBGRSTREQ2", "CLUSTER0_DBGRSTREQ3",

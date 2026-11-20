@@ -476,6 +476,7 @@ struct slsi_ba_frame_desc {
 	struct sk_buff *signal;
 	u16            tid;
 	u16            sn;
+	bool           is_ciphered;
 	bool           flag_old_sn;
 	bool           flag_old_tdls;
 	u8             pn[SLSI_RX_PN_LEN];
@@ -493,6 +494,7 @@ struct slsi_ba_session_rx {
 	u16                       start_sn;
 	u16                       highest_received_sn;
 	bool                      closing;
+	bool                      last_sn_check;
 	bool                      trigger_ba_after_ssn;
 	u8                        tid;
 
@@ -677,6 +679,7 @@ struct slsi_peer {
 	struct station_info       sinfo;
 	/* rate limit for peer sinfo mib reads  */
 	struct ratelimit_state    sinfo_mib_get_rs;
+	u16                       last_sn[NUM_BA_SESSIONS_PER_PEER];
 	u8                        rx_pn[NUM_BA_SESSIONS_PER_PEER][SLSI_RX_PN_LEN];
 	struct slsi_ba_session_rx *ba_session_rx[NUM_BA_SESSIONS_PER_PEER];
 
@@ -1529,7 +1532,12 @@ struct slsi_dev_config {
 #define SLSI_NET_INDEX_AP2  5
 #define SLSI_NET_INDEX_AP_VLAN  6
 #define SLSI_NET_INDEX_AP_VLAN2  7
+#if CONFIG_SCSC_WLAN_WONDERTAP
+#define SLSI_NET_INDEX_RELAY  8
+#define SLSI_NET_INDEX_NAN  9
+#else
 #define SLSI_NET_INDEX_NAN  8
+#endif
 #define SLSI_NET_INDEX_DETECT (CONFIG_SCSC_WLAN_MAX_INTERFACES + 1)
 #define SLSI_NAN_DATA_IFINDEX_START (SLSI_NET_INDEX_NAN + 1)
 
@@ -1865,7 +1873,7 @@ struct slsi_dev {
 	int                        minor_prof;
 #endif
 	DECLARE_BITMAP(rx_ba_bitmap, CONFIG_SCSC_WLAN_MAX_INTERFACES);
-	struct slsi_ba_session_rx  rx_ba_buffer_pool[SLSI_MAX_RX_BA_SESSIONS];
+	struct slsi_ba_session_rx  *rx_ba_buffer_pool;
 	struct slsi_spinlock       rx_ba_buffer_pool_lock;
 	bool			   fail_reported;
 	bool			   p2p_certif; /* Set to true to idenitfy p2p_certification testing is going on*/
@@ -2017,6 +2025,9 @@ struct slsi_dev {
 	bool                       fw_eht_enabled;
 	int                        dynamic_bw_type;
 	int                        dynamic_bw_index;
+#if CONFIG_SCSC_WLAN_WONDERTAP
+	struct wondertap_priv      *wondertap_priv;
+#endif
 };
 
 /* Compact representation of channels a ESS has been seen on

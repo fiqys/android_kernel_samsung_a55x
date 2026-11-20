@@ -43,7 +43,6 @@ static const struct mfc_core_ops mfc_plugin_ops = {
 	.instance_cache_flush = NULL,
 	.instance_move_to = NULL,
 	.instance_move_from = NULL,
-	.instance_csd_parsing = NULL,
 	.instance_dpb_flush = NULL,
 	.instance_init_buf = NULL,
 	.instance_q_flush = NULL,
@@ -197,8 +196,7 @@ static int mfc_plugin_probe(struct platform_device *pdev)
 	mfc_plugin_init_hwlock(core);
 
 	/* plug-in butler worker */
-	core->butler_wq = alloc_workqueue("mfc_plugin/butler", WQ_UNBOUND
-					| WQ_MEM_RECLAIM | WQ_HIGHPRI, 1);
+	core->butler_wq = alloc_workqueue("mfc_plugin/butler", WQ_UNBOUND | WQ_HIGHPRI, 1);
 	if (core->butler_wq == NULL) {
 		dev_err(&pdev->dev, "failed to create workqueue for butler\n");
 		goto err_butler_wq;

@@ -2298,7 +2298,7 @@ static struct mfc_buf *__mfc_core_nal_q_handle_frame_output_del(struct mfc_core 
 		if (is_disp_res_change) {
 			mfc_ctx_info("[NALQ][FRAME][DRC] display resolution changed\n");
 			mutex_lock(&ctx->drc_wait_mutex);
-			ctx->wait_state = WAIT_G_FMT;
+			ctx->wait_state |= WAIT_G_CROP;
 			__mfc_core_nal_q_get_img_size(core, ctx, pOutStr, MFC_GET_RESOL_SIZE);
 			mfc_set_mb_flag(dst_mb, MFC_FLAG_DISP_RES_CHANGE);
 			mutex_unlock(&ctx->drc_wait_mutex);
@@ -2310,7 +2310,7 @@ static struct mfc_buf *__mfc_core_nal_q_handle_frame_output_del(struct mfc_core 
 		if (is_crop_info_change) {
 			mfc_ctx_info("[NALQ][FRAME][DRC] crop info changed\n");
 			mutex_lock(&ctx->drc_wait_mutex);
-			ctx->wait_state = WAIT_G_FMT;
+			ctx->wait_state |= WAIT_G_CROP;
 			__mfc_core_nal_q_get_crop_info(core, ctx, pOutStr);
 			mfc_set_mb_flag(dst_mb, MFC_FLAG_DISP_RES_CHANGE);
 			dec->disp_drc.disp_crop_change = 1;

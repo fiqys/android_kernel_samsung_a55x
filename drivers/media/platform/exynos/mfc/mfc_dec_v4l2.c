@@ -683,7 +683,15 @@ static int mfc_dec_g_fmt_vid_cap_mplane(struct file *file, void *priv,
 	}
 
 	mutex_lock(&ctx->drc_wait_mutex);
-	if ((ctx->wait_state & WAIT_G_FMT) != 0) {
+	/*
+	 * Do not clear WAIT_DEC_G_FMT while WAIT_G_CROP is set.
+	 * When both DRC and crop change occur, the user calls g_fmt
+	 * twice (1st for crop, 2nd for resolution). If G_FMT is cleared
+	 * on the 1st g_fmt, INIT_BUFFERS could run before the user
+	 * retrieves the new resolution via 2nd g_fmt.
+	 */
+	if ((ctx->wait_state & WAIT_G_FMT) &&
+			!(ctx->wait_state & WAIT_G_CROP)) {
 		ctx->wait_state &= ~(WAIT_G_FMT);
 		mfc_debug(2, "clear WAIT_G_FMT %d\n", ctx->wait_state);
 		MFC_TRACE_CTX("** DEC clear WAIT_G_FMT(wait_state %d)\n", ctx->wait_state);
@@ -1622,17 +1630,6 @@ static void __mfc_dec_update_disp_res(struct mfc_ctx *ctx, struct v4l2_selection
 		dec->disp_drc.push_idx = 0;
 		dec->disp_drc.pop_idx = 0;
 	}
-
-	/*
-	 * Do not clear WAIT_G_FMT except RUNNING state
-	 * because the resolution change (DRC) case uses WAIT_G_FMT
-	 */
-	if (mfc_rm_query_state(ctx, EQUAL, MFCINST_RUNNING)
-			&& (ctx->wait_state & WAIT_G_FMT) != 0) {
-		ctx->wait_state &= ~(WAIT_G_FMT);
-		mfc_ctx_debug(2, "clear WAIT_G_FMT %d\n", ctx->wait_state);
-		MFC_TRACE_CTX("** DEC clear WAIT_G_FMT(wait_state %d)\n", ctx->wait_state);
-	}
 }
 
 /* Get cropping information */
@@ -1654,6 +1651,13 @@ static int mfc_dec_g_selection(struct file *file, void *priv,
 	core_ctx = core->core_ctx[ctx->num];
 
 	mutex_lock(&ctx->drc_wait_mutex);
+	if (ctx->wait_state & WAIT_G_CROP) {
+		ctx->wait_state &= ~(WAIT_G_CROP);
+		mfc_debug(2, "clear WAIT_G_CROP %d\n", ctx->wait_state);
+		MFC_TRACE_CTX("** DEC clear WAIT_G_CROP(wait_state %d)\n",
+				ctx->wait_state);
+	}
+
 	if (dec->disp_drc.disp_res_change) {
 		__mfc_dec_update_disp_res(ctx, s);
 		mutex_unlock(&ctx->drc_wait_mutex);
@@ -1661,7 +1665,7 @@ static int mfc_dec_g_selection(struct file *file, void *priv,
 	}
 	mutex_unlock(&ctx->drc_wait_mutex);
 
-	if (!ready_to_get_crop(core_ctx)) {
+	if (!NEED_TO_GET_CROP(core_ctx)) {
 		mfc_err("ready to get compose failed\n");
 		return -EINVAL;
 	}

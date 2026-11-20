@@ -168,6 +168,7 @@ static int __mfc_plugin_get_new_ctx_protected(struct mfc_core *core)
 {
 	struct mfc_dev *dev = core->dev;
 	struct mfc_ctx *new_ctx;
+	struct mfc_core_ctx *new_core_ctx;
 	int index;
 
 	if (core->shutdown) {
@@ -201,6 +202,12 @@ static int __mfc_plugin_get_new_ctx_protected(struct mfc_core *core)
 	new_ctx = dev->ctx[index];
 	if (!new_ctx) {
 		mfc_core_err("no mfc context to run\n");
+		return -1;
+	}
+
+	new_core_ctx = core->core_ctx[index];
+	if (!new_core_ctx) {
+		mfc_core_err("no mfc core context to run\n");
 		return -1;
 	}
 
@@ -326,8 +333,10 @@ static int __mfc_plugin_fg_just_run(struct mfc_core_ctx *core_ctx)
 	if (core->dev->pdata->support_fg_shadow)
 		spin_unlock_irqrestore(&core->fg_q_handle->lock, flags);
 
-	if (core->fg_q_enable)
+	if (core->fg_q_enable) {
 		mfc_plugin_release_hwlock(core_ctx);
+		core->sched->clear_work(core, core_ctx);
+	}
 
 	mfc_core_debug_leave();
 

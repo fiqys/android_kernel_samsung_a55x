@@ -431,7 +431,6 @@ static const struct mfc_core_ops mfc_core_ops = {
 	.instance_cache_flush = mfc_core_instance_cache_flush,
 	.instance_move_to = mfc_core_instance_move_to,
 	.instance_move_from = mfc_core_instance_move_from,
-	.instance_csd_parsing = mfc_core_instance_csd_parsing,
 	.instance_dpb_flush = mfc_core_instance_dpb_flush,
 	.instance_init_buf = mfc_core_instance_init_buf,
 	.instance_q_flush = mfc_core_instance_q_flush,
@@ -684,8 +683,7 @@ static int mfc_core_probe(struct platform_device *pdev)
 	INIT_LIST_HEAD(&core->qos_queue);
 
 	/* core butler worker */
-	core->butler_wq = alloc_workqueue("mfc_core/butler", WQ_UNBOUND
-					| WQ_MEM_RECLAIM | WQ_HIGHPRI, 1);
+	core->butler_wq = alloc_workqueue("mfc_core/butler", WQ_UNBOUND | WQ_HIGHPRI, 1);
 	if (core->butler_wq == NULL) {
 		dev_err(&pdev->dev, "failed to create workqueue for butler\n");
 		goto err_butler_wq;
@@ -693,8 +691,7 @@ static int mfc_core_probe(struct platform_device *pdev)
 	INIT_WORK(&core->butler_work, mfc_core_butler_worker);
 
 	/* core QoS control worker */
-	core->qos_ctrl_wq = alloc_workqueue("mfc_core/qos_ctrl", WQ_UNBOUND
-					| WQ_MEM_RECLAIM | WQ_HIGHPRI, 1);
+	core->qos_ctrl_wq = alloc_workqueue("mfc_core/qos_ctrl", WQ_UNBOUND | WQ_HIGHPRI, 1);
 	if (core->qos_ctrl_wq == NULL) {
 		dev_err(&pdev->dev, "failed to create workqueue for QoS control\n");
 		goto err_qos_ctrl_wq;

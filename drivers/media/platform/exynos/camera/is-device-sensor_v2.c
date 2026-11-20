@@ -903,6 +903,7 @@ static int is_sensor_stop(struct is_device_sensor *device)
 
 p_err:
 	clear_bit(IS_SENSOR_START, &device->state);
+	set_bit(IS_SENSOR_STREAM_OFF, &device->state);
 	scenario_id = is_hw_dvfs_get_scenario(ischain, IS_DVFS_STATIC);
 	is_set_static_dvfs(&ischain->resourcemgr->dvfs_ctrl, scenario_id, false, false);
 
@@ -1753,6 +1754,7 @@ static void is_sensor_reset_state(struct is_device_sensor *device)
 	clear_bit(IS_SENSOR_ASSERT_CRASH, &device->state);
 	clear_bit(IS_SENSOR_S_POWER, &device->state);
 	clear_bit(IS_SENSOR_SUSPEND, &device->state);
+	clear_bit(IS_SENSOR_STREAM_OFF, &device->state);
 
 	device->smc_state = IS_SENSOR_SMC_INIT;
 	device->vctx = NULL;

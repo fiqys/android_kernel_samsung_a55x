@@ -36,7 +36,7 @@
 };
 
 
-/* /home/dpi/qb5_8814/workspace/P4_1716/android/kernel/kmodule/battery/suwon/fuelgauge/s2mf301/a55x/s2mf301_fuelgauge.dtsi */
+/* /home/dpi/qb5_8815/workspace/P4_1716/android/kernel/kmodule/battery/suwon/fuelgauge/s2mf301/a55x/s2mf301_fuelgauge.dtsi */
 /*
  * s2mf301 battery device tree common
  *

@@ -74,6 +74,8 @@ static void set_mibs(struct slsi_dev *sdev)
 
 	cfm = slsi_mlme_set_with_cfm(sdev, NULL, sdev->ini_conf_struct.ini_conf_buff,
 				     sdev->ini_conf_struct.ini_conf_buff_pos + 1);
+	if (!cfm)
+		return;
 
 	if (fapi_get_datalen(cfm)) {
 		SLSI_ERR(sdev, "Err Setting MIB failed.\n");
@@ -296,6 +298,8 @@ static int encode_mib_octet_with_2indices(struct slsi_dev *sdev, u8 *buf, u16 *p
 	}
 	cfm = slsi_mlme_set_with_cfm(sdev, NULL, mib_val_set.data,
 				     mib_val_set.dataLength);
+	if (!cfm)
+		goto exit_with_mibval;
 
 	if (fapi_get_datalen(cfm)) {
 		SLSI_ERR(sdev, "Err Setting MIB failed.\n");
@@ -306,8 +310,8 @@ static int encode_mib_octet_with_2indices(struct slsi_dev *sdev, u8 *buf, u16 *p
 
 
 	kfree_skb(cfm);
+exit_with_mibval:
 	kfree(mib_val_set.data);
-
 exit_with_value:
 	kfree(values);
 exit_with_mibrsp:

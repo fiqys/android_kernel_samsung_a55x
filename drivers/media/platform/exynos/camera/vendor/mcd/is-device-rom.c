@@ -19,6 +19,7 @@
 #include "is-sec-define.h"
 
 #define DRIVER_NAME "is-device-rom-i2c"
+struct is_vendor_rom dualized_rom_info;
 
 static int sensor_rom_probe(struct i2c_client *client,
 	const struct i2c_device_id *id)
@@ -29,6 +30,7 @@ static int sensor_rom_probe(struct i2c_client *client,
 	struct is_vendor_private *vendor_priv;
 	struct device *is_dev;
 	struct is_vendor_rom *rom_info;
+	struct is_vendor_rom *temp_dualized_rom_info;
 	int ret;
 	u32 rom_id;
 
@@ -69,6 +71,7 @@ static int sensor_rom_probe(struct i2c_client *client,
 	i2c_set_clientdata(client, rom);
 
 	is_sec_get_rom_info(&rom_info, rom_id);
+	is_sec_get_dualized_rom_info(&temp_dualized_rom_info, rom_id);
 
 	if (client->dev.of_node) {
 		if(is_vendor_rom_parse_dt(client->dev.of_node, rom_id)) {
@@ -76,6 +79,9 @@ static int sensor_rom_probe(struct i2c_client *client,
 			pablo_free(rom);
 			return -ENODEV;
 		}
+
+		if (temp_dualized_rom_info->is_dualized_cal == true)
+			rom_info = temp_dualized_rom_info;
 
 		rom_info->buf = pablo_zalloc(rom_info->rom_size, GFP_KERNEL);
 		if (!rom_info->buf) {
@@ -96,8 +102,45 @@ static int sensor_rom_probe(struct i2c_client *client,
 		}
 	}
 
-	rom_info->client = client;
-	rom_info->valid = true;
+	rom_info->client[0] = client;
+	rom_info->valid[0] = true;
+	if(rom_info->is_dualized_cal) {
+		dualized_rom_info.client[0] = client;
+		dualized_rom_info.valid[0] = true;
+		rom_info->is_dualized_cal = false;
+	}
+
+	is_sec_get_rom_info(&rom_info, rom_id);
+
+	if (rom_info->rom_type == ROM_TYPE_EEPROM && temp_dualized_rom_info->rom_type == ROM_TYPE_EEPROM) {
+		rom_info->client[0] = client;
+		rom_info->valid[0] = true;
+		rom_info->buf = pablo_zalloc(rom_info->rom_size, GFP_KERNEL);
+		if (!rom_info->buf) {
+			probe_err("failed to alloc dualized_rom buffer, id[%d] size[%d]", rom_id, rom_info->rom_size);
+			pablo_free(rom);
+			return -ENOMEM;
+		}
+
+		if (rom_info->use_standard_cal) {
+			rom_info->sec_buf = pablo_zalloc(rom_info->rom_size, GFP_KERNEL);
+			if (!rom_info->sec_buf) {
+				probe_err("failed to alloc sec_buf of rom_id[%d] rom_size[%d]",
+					rom_id, rom_info->rom_size);
+				pablo_free(rom);
+				pablo_free(rom_info->buf);
+				return -ENOMEM;
+			}
+		}
+
+	}
+
+	if (rom_info->check_dualize) {
+		vendor_priv->dualized_rom[rom_id].client[0] = dualized_rom_info.client[0];
+		vendor_priv->dualized_rom[rom_id].valid[0] = dualized_rom_info.valid[0];
+	}
+
+	vendor_priv->use_dualized_sensor[rom_id] = false;
 
 	probe_info("%s %s[%ld]: is_sensor_rom probed (rom_id=%d)!\n",
 		dev_driver_string(&client->dev), dev_name(&client->dev), id->driver_data, rom_id);

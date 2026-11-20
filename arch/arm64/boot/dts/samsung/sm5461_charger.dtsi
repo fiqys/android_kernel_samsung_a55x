@@ -13,7 +13,7 @@
 	};
 };
 
-/* /home/dpi/qb5_8814/workspace/P4_1716/android/kernel/kmodule/battery/suwon/charger/sm5461/sm5461_charger.a55x.dtsi */
+/* /home/dpi/qb5_8815/workspace/P4_1716/android/kernel/kmodule/battery/suwon/charger/sm5461/sm5461_charger.a55x.dtsi */
 &sm5461_charger {
 	sm5461,topoff = <450>;
 };

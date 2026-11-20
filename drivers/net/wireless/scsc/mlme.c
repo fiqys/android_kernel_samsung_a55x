@@ -21,8 +21,15 @@
 #include "tx_api.h"
 #endif
 
+#if CONFIG_SCSC_WLAN_WONDERTAP
+#include "slsi_wondertap.h"
+#endif
 #define SLSI_NOA_CONFIG_REQUEST_ID          (1)
 #define SLSI_MLME_ARP_DROP_FREE_SLOTS_COUNT 16
+#if CONFIG_SCSC_WLAN_WONDERTAP
+#define WONDERTAP_TX_RATE_OUI_LEN      5   /* OUI(3) + Type(1) + Subtype(1) */
+#define WONDERTAP_TX_RATE_FIXED_LEN    5   /* preamble + bw + nss + gi + legacy */
+#endif
 
 static bool missing_cfm_ind_panic = true;
 module_param(missing_cfm_ind_panic, bool, S_IRUGO | S_IWUSR);
@@ -2439,10 +2446,10 @@ int slsi_mlme_start(struct slsi_dev *sdev, struct net_device *dev, const unsigne
 	fapi_set_u16(req, u.mlme_start_req.hidden_ssid, settings->hidden_ssid < 3 ? settings->hidden_ssid : NL80211_HIDDEN_SSID_ZERO_LEN);
 	channel_encode = ndev_vif->acs == true ? 0 : 1;
 	fapi_set_u16(req, u.mlme_start_req.channel_configuration, channel_encode);
-	fapi_set_u32(req, u.mlme_start_req.spare_1, 0);
+	fapi_set_u32(req, u.mlme_start_req.flags, 0);
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
 	if (settings->crypto.sae_pwe == NL80211_SAE_PWE_HASH_TO_ELEMENT)
-		fapi_set_u32(req, u.mlme_start_req.spare_1, 0x00000001);
+		fapi_set_u16(req, u.mlme_start_req.flags, 0x0001);
 #endif
 	fw_freq = ndev_vif->chan->center_freq;
 	chan_info = slsi_get_chann_info(sdev, ndev_vif->chandef);
@@ -3992,20 +3999,20 @@ int slsi_mlme_get_num_antennas(struct slsi_dev *sdev, struct net_device *dev, in
 	}
 	SLSI_DBG1_NODEV(SLSI_MLME, "mlme_get_num_rx_antennas_req(vif:%u)\n", ndev_vif->ifnum);
 
-	req = fapi_alloc(mlme_get_num_rx_antennas_req, MLME_GET_NUM_RX_ANTENNAS_REQ, ndev_vif->ifnum, 0);
+	req = fapi_alloc(mlme_get_num_txrx_antennas_req, MLME_GET_NUM_TXRX_ANTENNAS_REQ, ndev_vif->ifnum, 0);
 	if (!req)
 		return -ENOMEM;
 
-	cfm = slsi_mlme_req_cfm(sdev, dev, req, MLME_GET_NUM_RX_ANTENNAS_CFM);
+	cfm = slsi_mlme_req_cfm(sdev, dev, req, MLME_GET_NUM_TXRX_ANTENNAS_CFM);
 	if (!cfm)
 		return -EIO;
 
-	if (fapi_get_u16(cfm, u.mlme_get_num_rx_antennas_cfm.result_code) != FAPI_RESULTCODE_SUCCESS) {
+	if (fapi_get_u16(cfm, u.mlme_get_num_txrx_antennas_cfm.result_code) != FAPI_RESULTCODE_SUCCESS) {
 		SLSI_NET_ERR(dev, "mlme_get_num_rx_antennas_cfm(result:0x%04x) ERROR\n",
-			     fapi_get_u16(cfm, u.mlme_get_num_rx_antennas_cfm.result_code));
+			     fapi_get_u16(cfm, u.mlme_get_num_txrx_antennas_cfm.result_code));
 		ret = -EINVAL;
 	}
-	*num_antennas = fapi_get_u16(cfm, u.mlme_get_num_rx_antennas_cfm.number_of_antennas);
+	*num_antennas = fapi_get_u16(cfm, u.mlme_get_num_txrx_antennas_cfm.number_of_antennas);
 
 	kfree_skb(cfm);
 	return ret;
@@ -5890,21 +5897,21 @@ int slsi_mlme_set_num_antennas(struct net_device *dev, const u16 num_of_antennas
 	}
 	SLSI_NET_INFO(dev, "SetNumAntennas(vif:%u NumAntenna:%u ftype:%d)\n",
 		      ndev_vif->ifnum, num_of_antennas, frame_type);
-	req = fapi_alloc(mlme_set_num_rx_antennas_req, MLME_SET_NUM_RX_ANTENNAS_REQ, ndev_vif->ifnum, 0);
+	req = fapi_alloc(mlme_set_num_txrx_antennas_req, MLME_SET_NUM_TXRX_ANTENNAS_REQ, ndev_vif->ifnum, 0);
 	if (!req) {
 		SLSI_NET_ERR(dev, "failed to alloc set num antennas request\n");
 		return -ENOMEM;
 	}
-	fapi_set_u16(req, u.mlme_set_num_rx_antennas_req.vif, ndev_vif->ifnum);
-	fapi_set_u16(req, u.mlme_set_num_rx_antennas_req.number_of_antennas, num_of_antennas);
-	fapi_set_u16(req, u.mlme_set_num_rx_antennas_req.frame_type, frame_type);
-	cfm = slsi_mlme_req_cfm(sdev, dev, req, MLME_SET_NUM_RX_ANTENNAS_CFM);
+	fapi_set_u16(req, u.mlme_set_num_txrx_antennas_req.vif, ndev_vif->ifnum);
+	fapi_set_u16(req, u.mlme_set_num_txrx_antennas_req.number_of_antennas, num_of_antennas);
+	fapi_set_u16(req, u.mlme_set_num_txrx_antennas_req.frame_type, frame_type);
+	cfm = slsi_mlme_req_cfm(sdev, dev, req, MLME_SET_NUM_TXRX_ANTENNAS_CFM);
 	if (!cfm)
 		return -EIO;
 
-	if (fapi_get_u16(cfm, u.mlme_set_num_rx_antennas_cfm.result_code) != FAPI_RESULTCODE_SUCCESS) {
+	if (fapi_get_u16(cfm, u.mlme_set_num_txrx_antennas_cfm.result_code) != FAPI_RESULTCODE_SUCCESS) {
 		SLSI_NET_ERR(dev, "mlme_set_num_rx_antennas_cfm(result:0x%04x) ERROR\n",
-			     fapi_get_u16(cfm, u.mlme_set_num_rx_antennas_cfm.result_code));
+			     fapi_get_u16(cfm, u.mlme_set_num_txrx_antennas_cfm.result_code));
 		ret = -EINVAL;
 	}
 	kfree_skb(cfm);
@@ -6249,7 +6256,7 @@ int slsi_mlme_set_delayed_wakeup_type(struct slsi_dev  *sdev, struct net_device 
 	struct sk_buff *req;
 	struct sk_buff *cfm;
 	int r = 0, i = 0;
-	int alloc_data_size;
+	int alloc_data_size = 0;
 	struct slsi_mlme_parameters req_header;
 
 	WLBT_WARN_ON(!SLSI_MUTEX_IS_LOCKED(ndev_vif->vif_mutex));
@@ -6257,9 +6264,9 @@ int slsi_mlme_set_delayed_wakeup_type(struct slsi_dev  *sdev, struct net_device 
 	if (ipv4_count)
 		alloc_data_size = ipv4_count * 4 + sizeof(req_header);
 	if (ipv6_count)
-		alloc_data_size = ipv6_count * 16 + sizeof(req_header);
+		alloc_data_size = alloc_data_size + (ipv6_count * 16 + sizeof(req_header));
 	if (mac_count)
-		alloc_data_size = (mac_count * ETH_ALEN) + sizeof(req_header);
+		alloc_data_size = alloc_data_size + ((mac_count * ETH_ALEN) + sizeof(req_header));
 
 	req = fapi_alloc(mlme_delayed_wakeup_req, MLME_DELAYED_WAKEUP_REQ, ndev_vif->ifnum, alloc_data_size);
 	if (!req)
@@ -7016,7 +7023,7 @@ int slsi_mlme_set_max_bw(struct slsi_dev *sdev, struct net_device *dev, u16 prot
 		return -ENOMEM;
 	}
 
-	fapi_set_u16(req, u.mlme_set_bss_max_channel_width_req.protection_scope, protection_scope);
+	fapi_set_u16(req, u.mlme_set_bss_max_channel_width_req.reserved, protection_scope);
 	fapi_set_u16(req, u.mlme_set_bss_max_channel_width_req.channel_information, bandwidth);
 	fapi_set_u16(req, u.mlme_set_bss_max_channel_width_req.spare_1, announce_validate);
 
@@ -7052,3 +7059,496 @@ int slsi_mlme_set_max_bw(struct slsi_dev *sdev, struct net_device *dev, u16 prot
 	kfree_skb(rx);
 	return r;
 }
+
+#if CONFIG_SCSC_WLAN_WONDERTAP
+static size_t slsi_relay_tx_rate_vse_len(const struct vendor_hardware_ctx *ctx)
+{
+	if (!ctx || ctx->tx_rate.nss > 2)
+		return 0;
+
+	return WONDERTAP_TX_RATE_OUI_LEN + WONDERTAP_TX_RATE_FIXED_LEN + 8 * ctx->tx_rate.nss;
+}
+
+static size_t slsi_relay_tx_rate_tlv_total_len(const struct vendor_hardware_ctx *ctx)
+{
+	/* Element ID + Length + VSE body */
+	return 2 + slsi_relay_tx_rate_vse_len(ctx);
+}
+
+static int slsi_relay_fixed_tx_rate(struct sk_buff *req, struct vendor_hardware_ctx *ctx)
+{
+	u8				*p;
+	size_t			vse_len;
+	u16				val;
+	u16				*target = NULL;
+
+	u8				tx_rate_header[] = {
+		0xDD,					/* Element ID: Vendor Specific */
+		0x00,					/* Dynamic Length */
+		0x00, 0x16, 0x32,		/* OUI: Samsung Electronics Co. */
+		0x15,					/* OUI Type:  Relay */
+		0x00					/* OUI Subtype: Tx Rate */
+	};
+
+	vse_len = slsi_relay_tx_rate_vse_len(ctx);
+	if (vse_len > 0xFF || vse_len == 0)
+		return -EINVAL;
+
+	tx_rate_header[1] = (u8)vse_len;
+
+	p = fapi_append_data(req, tx_rate_header, sizeof(tx_rate_header));
+	p = fapi_append_data_u8(req, BIT(ctx->tx_rate.preamble));
+	p = fapi_append_data_u8(req, BIT(ctx->tx_rate.bw));
+	if (ctx->tx_rate.nss == 1 || ctx->tx_rate.nss == 2)
+		p = fapi_append_data_u8(req, BIT(ctx->tx_rate.nss - 1));
+	else
+		return -EINVAL;
+	p = fapi_append_data_u8(req, BIT(ctx->tx_rate.gi));
+	if(ctx->tx_rate.preamble == WONDERTAP_RATE_PREAMBLE_LEGACY)
+		p = fapi_append_data_u8(req, BIT(0));
+	else
+		p = fapi_append_data_u8(req, 0);
+
+	val = BIT(ctx->tx_rate.mcs);
+
+	switch (ctx->tx_rate.preamble) {
+	case WONDERTAP_RATE_PREAMBLE_HT:
+#if CONFIG_SCSC_WLAN_WONDERTAP >= SLSI_WONDER_API_V1_6_4
+		target = ctx->mcs_array.ht_mcs;
+#else
+		target = ctx->rate_mask.ht_mcs;
+#endif
+		break;
+	case WONDERTAP_RATE_PREAMBLE_VHT:
+#if CONFIG_SCSC_WLAN_WONDERTAP >= SLSI_WONDER_API_V1_6_4
+		target = ctx->mcs_array.vht_mcs;
+#else
+		target = ctx->rate_mask.vht_mcs;
+#endif
+		break;
+	case WONDERTAP_RATE_PREAMBLE_HE:
+#if CONFIG_SCSC_WLAN_WONDERTAP >= SLSI_WONDER_API_V1_6_4
+		target = ctx->mcs_array.he_mcs;
+#else
+		target = ctx->rate_mask.he_mcs;
+#endif
+		break;
+	case WONDERTAP_RATE_PREAMBLE_EHT:
+#if CONFIG_SCSC_WLAN_WONDERTAP >= SLSI_WONDER_API_V1_6_4
+		target = ctx->mcs_array.eht_mcs;
+#else
+		target = ctx->rate_mask.eht_mcs;
+#endif
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	if (ctx->tx_rate.nss == 1) {
+#if CONFIG_SCSC_WLAN_WONDERTAP >= SLSI_WONDER_API_V1_6_4
+		p = fapi_append_data_u16(req, (target == ctx->mcs_array.ht_mcs)  ? val : ctx->mcs_array.ht_mcs[0]);
+		p = fapi_append_data_u16(req, (target == ctx->mcs_array.vht_mcs) ? val : ctx->mcs_array.vht_mcs[0]);
+		p = fapi_append_data_u16(req, (target == ctx->mcs_array.he_mcs)  ? val : ctx->mcs_array.he_mcs[0]);
+		p = fapi_append_data_u16(req, (target == ctx->mcs_array.eht_mcs) ? val : ctx->mcs_array.eht_mcs[0]);
+#else
+		p = fapi_append_data_u16(req, (target == ctx->rate_mask.ht_mcs)  ? val : ctx->rate_mask.ht_mcs[0]);
+		p = fapi_append_data_u16(req, (target == ctx->rate_mask.vht_mcs) ? val : ctx->rate_mask.vht_mcs[0]);
+		p = fapi_append_data_u16(req, (target == ctx->rate_mask.he_mcs)  ? val : ctx->rate_mask.he_mcs[0]);
+		p = fapi_append_data_u16(req, (target == ctx->rate_mask.eht_mcs) ? val : ctx->rate_mask.eht_mcs[0]);
+#endif
+	} else if (ctx->tx_rate.nss == 2) {
+#if CONFIG_SCSC_WLAN_WONDERTAP >= SLSI_WONDER_API_V1_6_4
+		p = fapi_append_data_u16(req, ctx->mcs_array.ht_mcs[0]);
+		p = fapi_append_data_u16(req, (target == ctx->mcs_array.ht_mcs)  ? val : ctx->mcs_array.ht_mcs[1]);
+
+		p = fapi_append_data_u16(req, ctx->mcs_array.vht_mcs[0]);
+		p = fapi_append_data_u16(req, (target == ctx->mcs_array.vht_mcs) ? val : ctx->mcs_array.vht_mcs[1]);
+
+		p = fapi_append_data_u16(req, ctx->mcs_array.he_mcs[0]);
+		p = fapi_append_data_u16(req, (target == ctx->mcs_array.he_mcs)  ? val : ctx->mcs_array.he_mcs[1]);
+
+		p = fapi_append_data_u16(req, ctx->mcs_array.eht_mcs[0]);
+		p = fapi_append_data_u16(req, (target == ctx->mcs_array.eht_mcs) ? val : ctx->mcs_array.eht_mcs[1]);
+#else
+		p = fapi_append_data_u16(req, ctx->rate_mask.ht_mcs[0]);
+		p = fapi_append_data_u16(req, (target == ctx->rate_mask.ht_mcs)  ? val : ctx->rate_mask.ht_mcs[1]);
+
+		p = fapi_append_data_u16(req, ctx->rate_mask.vht_mcs[0]);
+		p = fapi_append_data_u16(req, (target == ctx->rate_mask.vht_mcs) ? val : ctx->rate_mask.vht_mcs[1]);
+
+		p = fapi_append_data_u16(req, ctx->rate_mask.he_mcs[0]);
+		p = fapi_append_data_u16(req, (target == ctx->rate_mask.he_mcs)  ? val : ctx->rate_mask.he_mcs[1]);
+
+		p = fapi_append_data_u16(req, ctx->rate_mask.eht_mcs[0]);
+		p = fapi_append_data_u16(req, (target == ctx->rate_mask.eht_mcs) ? val : ctx->rate_mask.eht_mcs[1]);
+#endif
+	} else {
+		return -EINVAL;
+	}
+
+	if (p)
+		return 0;
+	return -EINVAL;
+}
+
+static int slsi_relay_tx_rate_mask(struct sk_buff *req, struct vendor_hardware_ctx *ctx)
+{
+	u8				*p;
+	size_t			vse_len;
+	u16				val;
+	u16				*target = NULL;
+
+	u8				tx_rate_header[] = {
+		0xDD,					/* Element ID: Vendor Specific */
+		0x00,					/* Dynamic Length */
+		0x00, 0x16, 0x32,		/* OUI: Samsung Electronics Co. */
+		0x15,					/* OUI Type:  Relay */
+		0x00					/* OUI Subtype: Tx Rate */
+	};
+
+	vse_len = slsi_relay_tx_rate_vse_len(ctx);
+	if (vse_len > 0xFF || vse_len == 0)
+		return -EINVAL;
+
+	tx_rate_header[1] = (u8)vse_len;
+
+	p = fapi_append_data(req, tx_rate_header, sizeof(tx_rate_header));
+	p = fapi_append_data_u8(req, BIT(ctx->rate_mask.max_preamble));
+	p = fapi_append_data_u8(req, BIT(ctx->rate_mask.max_bw));
+	if (ctx->rate_mask.max_nss == 1 || ctx->rate_mask.max_nss == 2)
+		p = fapi_append_data_u8(req, BIT(ctx->rate_mask.max_nss - 1));
+	else
+		return -EINVAL;
+	p = fapi_append_data_u8(req, BIT(ctx->tx_rate.gi));
+	if(ctx->rate_mask.max_preamble == WONDERTAP_RATE_PREAMBLE_LEGACY)
+		p = fapi_append_data_u8(req, BIT(0));
+	else
+		p = fapi_append_data_u8(req, 0);
+
+	val = GENMASK(ctx->rate_mask.max_mcs, 0);
+
+	switch (ctx->rate_mask.max_preamble) {
+	case WONDERTAP_RATE_PREAMBLE_HT:
+		target = ctx->mcs_array.ht_mcs;
+		break;
+	case WONDERTAP_RATE_PREAMBLE_VHT:
+		target = ctx->mcs_array.vht_mcs;
+		break;
+	case WONDERTAP_RATE_PREAMBLE_HE:
+		target = ctx->mcs_array.he_mcs;
+		break;
+	case WONDERTAP_RATE_PREAMBLE_EHT:
+		target = ctx->mcs_array.eht_mcs;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	if (ctx->rate_mask.max_nss == 1) {
+		p = fapi_append_data_u16(req, (target == ctx->mcs_array.ht_mcs)  ? val : ctx->mcs_array.ht_mcs[0]);
+		p = fapi_append_data_u16(req, (target == ctx->mcs_array.vht_mcs) ? val : ctx->mcs_array.vht_mcs[0]);
+		p = fapi_append_data_u16(req, (target == ctx->mcs_array.he_mcs)  ? val : ctx->mcs_array.he_mcs[0]);
+		p = fapi_append_data_u16(req, (target == ctx->mcs_array.eht_mcs) ? val : ctx->mcs_array.eht_mcs[0]);
+	} else if (ctx->rate_mask.max_nss == 2) {
+		p = fapi_append_data_u16(req, ctx->mcs_array.ht_mcs[0]);
+		p = fapi_append_data_u16(req, (target == ctx->mcs_array.ht_mcs)  ? val : ctx->mcs_array.ht_mcs[1]);
+
+		p = fapi_append_data_u16(req, ctx->mcs_array.vht_mcs[0]);
+		p = fapi_append_data_u16(req, (target == ctx->mcs_array.vht_mcs) ? val : ctx->mcs_array.vht_mcs[1]);
+
+		p = fapi_append_data_u16(req, ctx->mcs_array.he_mcs[0]);
+		p = fapi_append_data_u16(req, (target == ctx->mcs_array.he_mcs)  ? val : ctx->mcs_array.he_mcs[1]);
+
+		p = fapi_append_data_u16(req, ctx->mcs_array.eht_mcs[0]);
+		p = fapi_append_data_u16(req, (target == ctx->mcs_array.eht_mcs) ? val : ctx->mcs_array.eht_mcs[1]);
+	} else {
+		SLSI_ERR_NODEV("[Wonder] Invalid ctx->rate_mask.max_nss :%d\n", ctx->rate_mask.max_nss);
+		return -EINVAL;
+	}
+
+	if (p)
+		return 0;
+	return -EINVAL;
+}
+
+static int relay_set_peer_info_capa(struct sk_buff *req, struct vendor_hardware_ctx *ctx)
+{
+	u8	*p = NULL, ies_buf[SLSI_WONDERTAP_STA_CAPA_IES_MAX_LEN];
+	int	ies_len;
+
+	if (!ctx->sta_info.capability_mask)
+		return 0;
+
+	ies_len = slsi_wondertap_sta_capa_to_ies(&ctx->sta_info, ies_buf, sizeof(ies_buf));
+	if (ies_len < 0)
+		return ies_len;
+
+	if (ies_len > 0) {
+		p = fapi_append_data(req, ies_buf, ies_len);
+	}
+
+	if (p)
+		return 0;
+	return -EINVAL;
+}
+
+int slsi_mlme_relay_start_request(struct slsi_dev *sdev, struct net_device *dev, struct vendor_hardware_ctx *ctx)
+{
+	struct netdev_vif *ndev_vif = netdev_priv(dev);
+	struct sk_buff	  *req;
+	struct sk_buff	  *cfm;
+	int 			  r = 0;
+	u16 channel_information = 0;
+	u16 bandwidth = 0;
+	u16 position = 0x00;
+	size_t extra_len;
+
+	if (!ctx) {
+		SLSI_NET_ERR(dev, "ctx is NULL\n");
+		return -EINVAL;
+	}
+
+	extra_len = slsi_relay_tx_rate_tlv_total_len(ctx);
+	if (extra_len == 2)
+		return -EINVAL;
+
+	req = fapi_alloc(mlme_relay_start_req, MLME_RELAY_START_REQ,
+			 ndev_vif->ifnum, extra_len);
+	if (!req) {
+		SLSI_NET_ERR(dev, "fapi alloc failure\n");
+		return -ENOMEM;
+	}
+
+	fapi_set_memcpy(req, u.mlme_relay_start_req.bssid, ctx->bssid);
+	fapi_set_u16(req, u.mlme_relay_start_req.channel_frequency, (u16)((ctx->freq.freq) * 2));
+
+	if(ctx->freq.bandwidth == WONDERTAP_RATE_BW_20)
+		bandwidth = 0x14;
+	else if(ctx->freq.bandwidth == WONDERTAP_RATE_BW_40)
+		bandwidth = 0x28;
+	else if(ctx->freq.bandwidth == WONDERTAP_RATE_BW_80)
+		bandwidth = 0x50;
+	else if(ctx->freq.bandwidth == WONDERTAP_RATE_BW_160)
+		bandwidth = 0xA0;
+	else if(ctx->freq.bandwidth == WONDERTAP_RATE_BW_320)
+		bandwidth = 0xB0;
+	else
+		SLSI_NET_ERR(dev, "[Wonder] Invalid bandwidth\n");
+
+	channel_information = ((position & 0xFF) << 8) | (bandwidth & 0xFF);
+	fapi_set_u16(req, u.mlme_relay_start_req.channel_information, channel_information);
+#if CONFIG_SCSC_WLAN_WONDERTAP >= SLSI_WONDER_API_V1_6_4
+	if (ctx->ra_enabled)
+		r = slsi_relay_tx_rate_mask(req, ctx);
+	else
+		r = slsi_relay_fixed_tx_rate(req, ctx);
+#else
+	r = slsi_relay_fixed_tx_rate(req, ctx);
+#endif
+	if (r) {
+		SLSI_NET_ERR(dev, "[Wonder] Error Relay Tx Rate TLV\n");
+		kfree_skb(req);
+		return r;
+	}
+	SCSC_BIN_TAG_INFO(BIN_WIFI_PM, req->data, req->len > 128 ? 128 : req->len);
+
+	cfm = slsi_mlme_req_cfm(sdev, dev, req, MLME_RELAY_START_CFM);
+	if (!cfm)
+		return -EIO;
+
+	if (fapi_get_u16(cfm, u.mlme_relay_start_cfm.result_code) != FAPI_RESULTCODE_SUCCESS) {
+		SLSI_NET_ERR(dev, "MLME_RELAY_START_REQUEST_CFM(res:0x%04x)\n",
+			     fapi_get_u16(cfm, u.mlme_relay_start_cfm.result_code));
+		r = -EINVAL;
+	}
+
+	kfree_skb(cfm);
+	return r;
+}
+
+int slsi_mlme_relay_set_channel_request(struct slsi_dev *sdev, struct net_device *dev, const struct wondertap_set_freq_params *params)
+{
+	struct netdev_vif *ndev_vif = netdev_priv(dev);
+	struct sk_buff	  *req;
+	struct sk_buff	  *cfm;
+	int 			  r = 0;
+	u16 channel_information = 0;
+	u16 bandwidth = 0;
+	u16 position = 0x00;
+
+	if (!params) {
+		SLSI_NET_ERR(dev, "params is NULL\n");
+		return -EINVAL;
+	}
+
+	req = fapi_alloc(mlme_relay_set_channel_req, MLME_RELAY_SET_CHANNEL_REQ,
+			 ndev_vif->ifnum, 0);
+	if (!req) {
+		SLSI_NET_ERR(dev, "fapi alloc failure\n");
+		return -ENOMEM;
+	}
+
+	fapi_set_u16(req, u.mlme_relay_set_channel_req.channel_frequency, (u16)((params->freq) * 2));
+
+	if(params->bandwidth== WONDERTAP_RATE_BW_20)
+		bandwidth = 0x14;
+	else if(params->bandwidth == WONDERTAP_RATE_BW_40)
+		bandwidth = 0x28;
+	else if(params->bandwidth == WONDERTAP_RATE_BW_80)
+		bandwidth = 0x50;
+	else if(params->bandwidth == WONDERTAP_RATE_BW_160)
+		bandwidth = 0xA0;
+	else if(params->bandwidth == WONDERTAP_RATE_BW_320)
+		bandwidth = 0xB0;
+	else
+		SLSI_NET_ERR(dev, "[Wonder] Invalid bandwidth\n");
+
+	channel_information = ((position & 0xFF) << 8) | (bandwidth & 0xFF);
+	fapi_set_u16(req, u.mlme_relay_set_channel_req.channel_information, channel_information);
+
+	cfm = slsi_mlme_req_cfm(sdev, dev, req, MLME_RELAY_SET_CHANNEL_CFM);
+	if (!cfm)
+		return -EIO;
+
+	if (fapi_get_u16(cfm, u.mlme_relay_set_channel_cfm.result_code) != FAPI_RESULTCODE_SUCCESS) {
+		SLSI_NET_ERR(dev, "MLME_RELAY_SET_CHANNEL_CFM(res:0x%04x)\n",
+			     fapi_get_u16(cfm, u.mlme_relay_set_channel_cfm.result_code));
+		r = -EINVAL;
+	}
+
+	kfree_skb(cfm);
+	return r;
+}
+
+int slsi_mlme_relay_fixed_tx_rate_request(struct slsi_dev *sdev, struct net_device *dev, struct vendor_hardware_ctx *ctx)
+{
+	struct netdev_vif *ndev_vif = netdev_priv(dev);
+	struct sk_buff	  *req;
+	struct sk_buff	  *cfm;
+	int 			  r = 0;
+	size_t extra_len;
+
+	if (!ctx) {
+		SLSI_NET_ERR(dev, "ctx is NULL\n");
+		return -EINVAL;
+	}
+
+	extra_len = slsi_relay_tx_rate_tlv_total_len(ctx);
+	if (extra_len == 2)
+		return -EINVAL;
+
+	req = fapi_alloc(mlme_relay_set_tx_rate_req, MLME_RELAY_SET_TX_RATE_REQ,
+			 ndev_vif->ifnum, extra_len);
+	if (!req) {
+		SLSI_NET_ERR(dev, "fapi alloc failure\n");
+		return -ENOMEM;
+	}
+
+	r = slsi_relay_fixed_tx_rate(req, ctx);
+	if (r) {
+		SLSI_NET_ERR(dev, "[Wonder] Error Relay Tx Rate TLV\n");
+		kfree_skb(req);
+		return r;
+	}
+
+	cfm = slsi_mlme_req_cfm(sdev, dev, req, MLME_RELAY_SET_TX_RATE_CFM);
+	if (!cfm)
+		return -EIO;
+
+	if (fapi_get_u16(cfm, u.mlme_relay_set_tx_rate_cfm.result_code) != FAPI_RESULTCODE_SUCCESS) {
+		SLSI_NET_ERR(dev, "MLME_RELAY_SET_TX_RATE_CFM(res:0x%04x)\n",
+			     fapi_get_u16(cfm, u.mlme_relay_set_tx_rate_cfm.result_code));
+		r = -EINVAL;
+	}
+
+	kfree_skb(cfm);
+	return r;
+}
+
+int slsi_mlme_relay_tx_rate_mask_request(struct slsi_dev *sdev, struct net_device *dev, struct vendor_hardware_ctx *ctx)
+{
+	struct netdev_vif *ndev_vif = netdev_priv(dev);
+	struct sk_buff	  *req;
+	struct sk_buff	  *cfm;
+	int 			  r = 0;
+	size_t extra_len;
+
+	if (!ctx) {
+		SLSI_NET_ERR(dev, "ctx is NULL\n");
+		return -EINVAL;
+	}
+
+	extra_len = slsi_relay_tx_rate_tlv_total_len(ctx);
+	if (extra_len == 2)
+		return -EINVAL;
+
+	req = fapi_alloc(mlme_relay_set_tx_rate_req, MLME_RELAY_SET_TX_RATE_REQ,
+			 ndev_vif->ifnum, extra_len);
+	if (!req) {
+		SLSI_NET_ERR(dev, "fapi alloc failure\n");
+		return -ENOMEM;
+	}
+
+	r = slsi_relay_tx_rate_mask(req, ctx);
+	if (r) {
+		SLSI_NET_ERR(dev, "[Wonder] Error Relay Tx Rate TLV\n");
+		kfree_skb(req);
+		return r;
+	}
+
+	cfm = slsi_mlme_req_cfm(sdev, dev, req, MLME_RELAY_SET_TX_RATE_CFM);
+	if (!cfm)
+		return -EIO;
+
+	if (fapi_get_u16(cfm, u.mlme_relay_set_tx_rate_cfm.result_code) != FAPI_RESULTCODE_SUCCESS) {
+		SLSI_NET_ERR(dev, "MLME_RELAY_SET_TX_RATE_CFM(res:0x%04x)\n",
+			     fapi_get_u16(cfm, u.mlme_relay_set_tx_rate_cfm.result_code));
+		r = -EINVAL;
+	}
+
+	kfree_skb(cfm);
+	return r;
+}
+
+
+int slsi_mlme_relay_set_peer_info_request(struct slsi_dev *sdev, struct net_device *dev, struct vendor_hardware_ctx *ctx)
+{
+	struct netdev_vif *ndev_vif = netdev_priv(dev);
+	struct sk_buff	  *req;
+	struct sk_buff	  *cfm;
+	int 			  r = 0;
+
+	if (!ctx) {
+		SLSI_NET_ERR(dev, "ctx is NULL\n");
+		return -EINVAL;
+	}
+
+	req = fapi_alloc(mlme_relay_set_peer_info_req, MLME_RELAY_SET_PEER_INFO_REQ,
+			ndev_vif->ifnum, ctx->station_info_len);
+	if(!req) {
+		SLSI_NET_ERR(dev, "fapi alloc failure\n");
+		return -ENOMEM;
+	}
+
+	fapi_set_memcpy(req, u.mlme_relay_set_peer_info_req.peer_address, ctx->sta_info.mac);
+	fapi_set_u8(req, u.mlme_relay_set_peer_info_req.action, ctx->action);
+
+	r = relay_set_peer_info_capa(req, ctx);
+
+	cfm = slsi_mlme_req_cfm(sdev, dev, req, MLME_RELAY_SET_PEER_INFO_CFM);
+	if (!cfm)
+		return -EIO;
+
+	ctx->flow_id = fapi_get_u16(cfm, u.mlme_relay_set_peer_info_cfm.flow_id);
+	SLSI_NET_INFO(dev, "MLME_RELAY_SET_PEER_INFO_CFM flow_id:%d\n", ctx->flow_id);
+
+	if (fapi_get_u16(cfm, u.mlme_relay_set_peer_info_cfm.result_code) != FAPI_RESULTCODE_SUCCESS) {
+		SLSI_NET_ERR(dev, "MLME_RELAY_SET_PEER_INFO_CFM(res:0x%04x)\n",
+			     fapi_get_u16(cfm, u.mlme_relay_set_peer_info_cfm.result_code));
+		r = -EINVAL;
+	}
+
+	kfree_skb(cfm);
+	return r;
+}
+#endif

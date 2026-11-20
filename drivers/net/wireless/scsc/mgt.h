@@ -497,6 +497,15 @@ static inline struct slsi_peer *slsi_get_peer_from_mac(struct slsi_dev *sdev, st
 			if (ndev_vif->peer_sta_record[i] && ndev_vif->peer_sta_record[i]->valid &&
 			    compare_ether_addr(ndev_vif->peer_sta_record[i]->address, mac) == 0)
 				return ndev_vif->peer_sta_record[i];
+#if CONFIG_SCSC_WLAN_WONDERTAP
+	} else if (ndev_vif->vif_type == FAPI_VIFTYPE_RELAY) {
+		int i = 0;
+
+		for (i = 0; i < SLSI_PEER_INDEX_MAX; i++)
+			if (ndev_vif->peer_sta_record[i] && ndev_vif->peer_sta_record[i]->valid &&
+			    compare_ether_addr(ndev_vif->peer_sta_record[i]->address, mac) == 0)
+				return ndev_vif->peer_sta_record[i];
+#endif
 #ifdef CONFIG_SCSC_WIFI_NAN_ENABLE
 	} else if (ndev_vif->ifnum >= SLSI_NAN_DATA_IFINDEX_START) {
 		int i = 0;

@@ -25,6 +25,15 @@
 #include "local_packet_capture.h"
 #endif
 
+#ifdef CONFIG_SCSC_WLAN_WONDERTAP
+#include <linux/ipv6.h>
+#include <linux/icmpv6.h>
+#include <net/ndisc.h>
+#include <wonder/wondertap.h>
+#include <net/ieee80211_radiotap.h>
+#endif
+#include "utils.h"
+
 #define SLSI_HOST_TAG_ARP_MASK         BIT(15)
 
 #define LOG_FILTER_Q_STATUS            (0x1)
@@ -943,6 +952,9 @@ __always_inline bool slsi_peer_add_post(struct slsi_dev *sdev, struct net_device
 					struct slsi_peer *peer)
 {
 	txbp_priv.peers++;
+#ifdef CONFIG_SCSC_WLAN_WONDERTAP
+	if (ndev_vif->ifnum != SLSI_NET_INDEX_RELAY)
+#endif
 	if (txbp_priv.peers == 1) {
 		write_lock(&txbp_priv.cod_lock);
 		txbp_priv.cod = 0;
@@ -1215,6 +1227,13 @@ u16 slsi_tx_select_queue(struct net_device *dev, struct sk_buff *skb, void *acce
 #endif
 #if (KERNEL_VERSION(5, 2, 0) > LINUX_VERSION_CODE)
 	SLSI_UNUSED_PARAMETER(fallback);
+#endif
+
+#ifdef CONFIG_SCSC_WLAN_WONDERTAP
+	if (ndev_vif->ifnum == SLSI_NET_INDEX_RELAY) {
+		skb->priority = FAPI_PRIORITY_QOS_UP0;
+		return SLSI_TRAFFIC_Q_BE;
+	}
 #endif
 
 	/* Defensive check for uninitialized mac header */
@@ -1663,6 +1682,184 @@ static __always_inline int slsi_tx_transmit_ap_multicast(struct slsi_dev *sdev, 
 	return NETDEV_TX_OK;
 }
 
+
+#ifdef CONFIG_SCSC_WLAN_WONDERTAP
+static inline int slsi_wondertap_80211_to_msdu(struct net_device *dev, struct sk_buff *skb)
+{
+	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
+	int offset;
+	u8 da[ETH_ALEN], sa[ETH_ALEN];
+	__be16 len;
+
+	if (!ieee80211_is_data(hdr->frame_control)) {
+		SLSI_NET_DBG3(dev, SLSI_RX, "Ignore this packet. It is not data\n");
+		return -EINVAL;
+	}
+
+	/* Offset to the 802.11 payload, including the KeyRSC for ciphered frames.
+	 * The PN inside that KeyRSC was already consumed from the 802.11 frame by
+	 * the BA/replay path before conversion.
+	 */
+	offset = ieee80211_hdrlen(hdr->frame_control);
+
+	if (slsi_80211_is_amsdu(hdr)) {
+		/* A-MSDU payload: just pull the 802.11 header */
+		skb_pull(skb, offset);
+		return 0;
+	} else {
+		/* MSDU: produce 802.3/LLC frame preserving LLC/SNAP intact.
+		* Result: DA(6) + SA(6) + Length(2) + [LLC/SNAP + payload unchanged]
+		*/
+		SLSI_ETHER_COPY(da, ieee80211_get_DA(hdr));
+		SLSI_ETHER_COPY(sa, ieee80211_get_SA(hdr));
+		len = htons(skb->len - offset);
+
+		memcpy(&skb->data[offset - 2], &len, 2);
+		SLSI_ETHER_COPY(&skb->data[offset - 2 - ETH_ALEN], sa);
+		SLSI_ETHER_COPY(&skb->data[offset - 2 - 2 * ETH_ALEN], da);
+		skb_pull(skb, offset - ETH_HLEN);
+
+		return 1;
+	}
+}
+
+static __always_inline int slsi_tx_transmit_wondertap(struct slsi_dev *sdev, struct net_device *dev, struct sk_buff *skb)
+{
+	struct netdev_vif *ndev_vif = netdev_priv(dev);
+	struct slsi_skb_cb *cb = slsi_skb_cb_get(skb);
+	struct slsi_peer *peer;
+	enum slsi_traffic_q tq;
+	u8 vif = 0;
+	u8 peer_index;
+	u16 peer_id = 0;
+	void *header = NULL;
+	struct wonder_txd txd;
+	struct ethhdr eth_hdr;
+	__le16 configuration_option = 0;
+	u8 tid;
+	int len;
+
+	/**
+	 * Wonder packet passed to slsi_tx_transmit_wondertap() has the following format
+	 *
+	 *                  | 14 Bytes | 4 Bytes |  8 Bytes         | 1 Byte |
+	 *        +----------+----------+---------+------------------+--------+----------------------------
+	 *        |          | eth_hdr  |   tx_d  | Radiotap header  |  pad   |  Payload (802.11 header)
+	 *        +----------+----------+---------+------------------+--------+----------------------------
+	 *        ↑          ↑
+	 *        head       data
+	 */
+
+	/* Get Ethernet header from pseudo-Ethernet header and remove it */
+	memcpy(&eth_hdr, skb->data, sizeof(struct ethhdr));
+	skb_pull(skb, sizeof(struct ethhdr));
+
+	/* Get WonderTap TX descriptor from headroom */
+	memcpy(&txd, (struct wonder_txd *)skb->data, sizeof(struct wonder_txd));
+	skb_pull(skb, sizeof(struct wonder_txd));
+
+	/* Remove radiotap header and 1-Byte pad from headroom */
+	skb_pull(skb, sizeof(struct ieee80211_radiotap_header));
+	skb_pull(skb, 1);
+
+	/* Check for misaligned (oddly aligned) data.
+	 * The f/w requires 16 bit aligned.
+	 * This is a corner case - for example, the kernel can generate BPDU
+	 * that are oddly aligned. Therefore it is acceptable to copy these
+	 * frames to a 16 bit alignment.
+	 */
+	if ((uintptr_t)skb->data & 0x1) {
+		struct sk_buff *skb2 = NULL;
+		u16 needed_tailroom = skb_tailroom(skb);
+		/* Received a socket buffer aligned on an odd address.
+		 * Re-align by asking for headroom.
+		 */
+		skb2 = skb_copy_expand(skb, SLSI_NETIF_SKB_HEADROOM, needed_tailroom, GFP_ATOMIC);
+		if (skb2 && (!(((uintptr_t)skb2->data) & 0x1))) {
+			consume_skb(skb);
+			skb = skb2;
+			SLSI_NET_DBG3(dev, SLSI_TX, "Oddly aligned skb realigned\n");
+		} else {
+			/* Drop the packet if we can't re-align. */
+			SLSI_NET_WARN(dev, "Oddly aligned skb failed realignment, dropping\n");
+			if (skb2) {
+				SLSI_NET_DBG3(dev, SLSI_TX, "skb_copy_expand didn't align for us\n");
+				kfree_skb(skb2);
+			} else {
+				SLSI_NET_DBG3(dev, SLSI_TX, "skb_copy_expand failed when trying to align\n");
+			}
+			return -EFAULT;
+		}
+	}
+
+	/* Re-fetch cb after potential skb reallocation above */
+	cb = slsi_skb_cb_get(skb);
+
+	vif = ndev_vif->ifnum;
+	tq = slsi_frame_priority_to_ac_queue(skb->priority);
+
+	/* Look up peer for proper flow_id and peer_index */
+	slsi_spinlock_lock(&ndev_vif->peer_lock);
+	peer = slsi_get_peer_from_mac(sdev, dev, eth_hdr.h_dest);
+	if (peer && peer->valid && txd.frame_type == IEEE80211_FTYPE_DATA) {
+		int ret = 0;
+
+		ret = slsi_wondertap_80211_to_msdu(dev, skb);
+		if (ret < 0) {
+			consume_skb(skb);
+			SLSI_NET_WARN(dev, "Invalid packet failed to convert 80211 -> msdu.\n");
+			slsi_spinlock_unlock(&ndev_vif->peer_lock);
+			return -EINVAL;
+		}
+		skb_reset_mac_header(skb);
+
+		len = skb->len;
+		peer_id = peer->flow_id;
+		peer_index = MAP_QS_TO_AID(peer->queueset);
+		peer->sinfo.tx_bytes += len;
+	} else {
+		/* use VIF index directly */
+		if (txd.frame_type == IEEE80211_FTYPE_DATA)
+			peer_id = 1 << 8;
+
+		len = skb->len;
+		configuration_option |= FAPI_OPTION_80211;
+		peer = NULL;
+		peer_index = 0;
+	}
+	slsi_spinlock_unlock(&ndev_vif->peer_lock);
+
+	/* Create MA_UNITDATA_REQ signal */
+	header = (void *)skb_push(skb, fapi_sig_size(ma_unitdata_req));
+	memset(header, 0, fapi_sig_size(ma_unitdata_req));
+
+	if (!txd.is_unicast)
+		configuration_option |= FAPI_OPTION_GROUP;
+
+	tid = txd.tid < 8 ? txd.tid : 0;
+
+	fapi_set_u16(skb, id,           MA_UNITDATA_REQ);
+	fapi_set_u16(skb, receiver_pid, 0);
+	fapi_set_u16(skb, sender_pid,   SLSI_TX_PROCESS_ID_MIN);
+	fapi_set_u32(skb, fw_reference, 0);
+	fapi_set_u16(skb, u.ma_unitdata_req.vif, vif);
+	fapi_set_u16(skb, u.ma_unitdata_req.configuration_option, configuration_option);
+	fapi_set_u16(skb, u.ma_unitdata_req.flow_id, (tid & 0xff) | (peer_id & 0xff00));
+	fapi_set_memcpy(skb, u.ma_unitdata_req.address, eth_hdr.h_dest);
+
+	/* Get MA_UNITDATA object pointer */
+	cb = slsi_skb_cb_get(skb);
+	cb->peer_idx = peer_index;
+	cb->sig_length = fapi_sig_size(ma_unitdata_req);
+	cb->data_length = skb->len;
+
+	/* Queue to TXBP - send raw 802.11 frame directly */
+	slsi_traffic_mon_event_tx(sdev, dev, len);
+	slsi_txbp_enqueue(dev, ndev_vif, skb);
+
+	return NETDEV_TX_OK;
+}
+#endif
 #ifdef CONFIG_SCSC_WIFI_NAN_ENABLE
 static __always_inline int slsi_tx_transmit_nan_multicast(struct slsi_dev *sdev, struct net_device *dev,
 							  struct sk_buff *skb)
@@ -1869,8 +2066,13 @@ __always_inline int slsi_tx_transmit_data(struct slsi_dev *sdev, struct net_devi
 		return -ENODEV;
 	}
 
+#ifdef CONFIG_SCSC_WLAN_WONDERTAP
+	if (is_msdu_enable() && ndev_vif->ifnum != SLSI_NET_INDEX_RELAY)
+		ethr_ii_to_subframe_msdu(skb);
+#else
 	if (is_msdu_enable())
 		ethr_ii_to_subframe_msdu(skb);
+#endif
 
 	if ((ndev_vif->vif_type == FAPI_VIFTYPE_AP ||
 	     ndev_vif->iftype == NL80211_IFTYPE_AP_VLAN) && is_mcast)
@@ -1879,6 +2081,10 @@ __always_inline int slsi_tx_transmit_data(struct slsi_dev *sdev, struct net_devi
 	/* For NAN vif_index is set to ndl_vif */
 	else if (ndev_vif->ifnum >= SLSI_NAN_DATA_IFINDEX_START && is_mcast)
 		ret = slsi_tx_transmit_nan_multicast(sdev, dev, skb);
+#endif
+#ifdef CONFIG_SCSC_WLAN_WONDERTAP
+	else if (ndev_vif->ifnum == SLSI_NET_INDEX_RELAY)
+		ret = slsi_tx_transmit_wondertap(sdev, dev, skb);
 #endif
 	else
 		ret = slsi_tx_transmit_normal(sdev, dev, skb);

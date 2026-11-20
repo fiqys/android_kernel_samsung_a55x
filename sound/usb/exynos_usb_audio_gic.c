@@ -1062,10 +1062,13 @@ int exynos_usb_audio_init(struct device *dev, struct platform_device *pdev)
 		goto probe_failed;
 	}
 
-	base_addr = ioremap(EXYNOS_URAM_ABOX_EMPTY_ADDR, EMPTY_SIZE);
 	if (!base_addr) {
-		dev_err(dev, "URAM ioremap failed\n");
-		goto probe_failed;
+		base_addr = ioremap(EXYNOS_URAM_ABOX_EMPTY_ADDR, EMPTY_SIZE);
+		pr_info("URAM message queue ioremap done !!\n");
+		if (!base_addr) {
+			dev_err(dev, "URAM ioremap failed\n");
+			goto probe_failed;
+		}
 	}
 
 	dev_gic = &pdev_tmp->dev;

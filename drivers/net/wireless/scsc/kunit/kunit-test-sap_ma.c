@@ -202,58 +202,82 @@ static void test_slsi_rx_data_deliver_skb(struct kunit *test)
 	struct net_device *dev = TEST_TO_DEV(test);
 	struct netdev_vif *ndev_vif = netdev_priv(dev);
 	struct slsi_dev *sdev = ndev_vif->sdev;
-	struct sk_buff *skb = fapi_alloc(ma_unitdata_ind, MA_UNITDATA_IND, SLSI_NET_INDEX_WLAN, 128);
-	struct slsi_skb_cb *skb_cb = slsi_skb_cb_get(skb);
-	struct ethhdr *ehdr;
+	struct sk_buff *skb;
+	struct slsi_skb_cb *skb_cb;
+	struct ieee80211_hdr_3addr *hdr;
 	u8 mac[ETH_ALEN] = { 0x0FF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 	u8 dev_addr[ETH_ALEN] = { 0x01, 0x01, 0x01, 0x01, 0x01, 0x00 };
+	u8 peer_addr[ETH_ALEN] = { 0x02, 0x02, 0x02, 0x02, 0x02, 0x02 };
+	u8 multi_addr[ETH_ALEN] = { 0x01, 0x00, 0x5e, 0x01, 0x02, 0x03 };
 
-	ehdr = (struct ethhdr *)skb->data;
+	/* 1) is_80211_frame not set -> dropped at conversion guard */
+	skb = fapi_alloc(ma_unitdata_ind, MA_UNITDATA_IND, SLSI_NET_INDEX_WLAN, 128);
 	slsi_rx_data_deliver_skb(sdev, dev, skb, 0);
 
 	ndev_vif->vif_type = FAPI_VIFTYPE_STATION;
 	ndev_vif->peer_sta_record[SLSI_STA_PEER_QUEUESET] = kunit_kzalloc(test, sizeof(struct slsi_peer), GFP_KERNEL);
 	ndev_vif->peer_sta_record[SLSI_STA_PEER_QUEUESET]->valid = true;
 
+	/* 2) A-MSDU frame (empty payload fails deaggregation -> dropped) */
 	skb = fapi_alloc(ma_unitdata_ind, MA_UNITDATA_IND, SLSI_NET_INDEX_WLAN, 128);
-	ehdr = (struct ethhdr *)skb->data;
 	skb_cb = slsi_skb_cb_get(skb);
-	skb_cb->is_amsdu = true;
+	skb_cb->is_80211_frame = true;
+	hdr = (struct ieee80211_hdr_3addr *)skb->data;
+	hdr->frame_control = cpu_to_le16(IEEE80211_FTYPE_DATA | IEEE80211_STYPE_QOS_DATA);
+	memset(hdr->addr1, 0, ETH_ALEN * 3);
+	memcpy(hdr->addr2, peer_addr, ETH_ALEN); /* SA for peer lookup */
+	skb->data[sizeof(*hdr)] = IEEE80211_QOS_CTL_A_MSDU_PRESENT;
 	slsi_rx_data_deliver_skb(sdev, dev, skb, 0);
 
+	/* 3) discard flag set -> dropped */
 	skb = fapi_alloc(ma_unitdata_ind, MA_UNITDATA_IND, SLSI_NET_INDEX_WLAN, 128);
-	ehdr = (struct ethhdr *)skb->data;
 	skb_cb = slsi_skb_cb_get(skb);
+	skb_cb->is_80211_frame = true;
 	skb_cb->discard = true;
+	hdr = (struct ieee80211_hdr_3addr *)skb->data;
+	hdr->frame_control = cpu_to_le16(IEEE80211_FTYPE_DATA);
+	memcpy(hdr->addr1, mac, ETH_ALEN);
+	memcpy(hdr->addr2, peer_addr, ETH_ALEN);
 	slsi_rx_data_deliver_skb(sdev, dev, skb, 0);
 
+	/* 4) STA mode, locally generated multicast relayed back by AP -> dropped */
 	skb = fapi_alloc(ma_unitdata_ind, MA_UNITDATA_IND, SLSI_NET_INDEX_WLAN, 128);
-	ehdr = (struct ethhdr *)skb->data;
 	skb_cb = slsi_skb_cb_get(skb);
+	skb_cb->is_80211_frame = true;
 	skb_cb->wakeup = true;
-	memcpy(ehdr->h_dest, mac, ETH_ALEN);
-	memset(ehdr->h_source, 0x01, ETH_ALEN);
-	dev->dev_addr = ehdr->h_source;
+	hdr = (struct ieee80211_hdr_3addr *)skb->data;
+	hdr->frame_control = cpu_to_le16(IEEE80211_FTYPE_DATA);
+	memcpy(hdr->addr1, mac, ETH_ALEN);
+	memcpy(hdr->addr2, dev_addr, ETH_ALEN);
+	dev->dev_addr = dev_addr;
 	slsi_rx_data_deliver_skb(sdev, dev, skb, 0);
 
+	/* 5) AP mode multicast intra-BSS */
 	skb = fapi_alloc(ma_unitdata_ind, MA_UNITDATA_IND, SLSI_NET_INDEX_WLAN, 128);
-	ehdr = (struct ethhdr *)skb->data;
+	skb_cb = slsi_skb_cb_get(skb);
+	skb_cb->is_80211_frame = true;
+	hdr = (struct ieee80211_hdr_3addr *)skb->data;
+	hdr->frame_control = cpu_to_le16(IEEE80211_FTYPE_DATA);
+	memcpy(hdr->addr1, mac, ETH_ALEN);
+	memcpy(hdr->addr2, peer_addr, ETH_ALEN);
 	dev->dev_addr = dev_addr;
-	memcpy(ehdr->h_dest, mac, ETH_ALEN);
 	ndev_vif->vif_type = FAPI_VIFTYPE_AP;
 	ndev_vif->peer_sta_records = 1;
-	memcpy(ndev_vif->peer_sta_record[0]->address, ehdr->h_source, ETH_ALEN);
+	memcpy(ndev_vif->peer_sta_record[0]->address, peer_addr, ETH_ALEN);
 	slsi_rx_data_deliver_skb(sdev, dev, skb, 0);
-	kfree_skb(skb);
 
+	/* 6) AP mode, ctx_napi delivery path */
 	skb = fapi_alloc(ma_unitdata_ind, MA_UNITDATA_IND, SLSI_NET_INDEX_WLAN, 128);
-	ehdr = (struct ethhdr *)skb->data;
-	ehdr->h_dest[0] = 0x00;		//not multi
+	skb_cb = slsi_skb_cb_get(skb);
+	skb_cb->is_80211_frame = true;
+	hdr = (struct ieee80211_hdr_3addr *)skb->data;
+	hdr->frame_control = cpu_to_le16(IEEE80211_FTYPE_DATA);
+	memcpy(hdr->addr1, mac, ETH_ALEN);
+	memcpy(hdr->addr2, peer_addr, ETH_ALEN);
 	dev->dev_addr = dev_addr;
-	memcpy(ehdr->h_dest, mac, ETH_ALEN);
 	ndev_vif->vif_type = FAPI_VIFTYPE_AP;
 	ndev_vif->peer_sta_records = 1;
-	memcpy(ndev_vif->peer_sta_record[0]->address, ehdr->h_source, ETH_ALEN);
+	memcpy(ndev_vif->peer_sta_record[0]->address, peer_addr, ETH_ALEN);
 	sdev->hip.hip_priv = kunit_kzalloc(test, sizeof(struct hip_priv), GFP_KERNEL);
 	sdev->hip.hip_priv->bh_dat = kunit_kzalloc(test, sizeof(struct bh_struct), GFP_KERNEL);
 	slsi_rx_data_deliver_skb(sdev, dev, skb, 1);
@@ -267,58 +291,65 @@ static void test_slsi_rx_data_ind(struct kunit *test)
 	struct slsi_dev *sdev = ndev_vif->sdev;
 	struct sk_buff *skb;
 	struct slsi_skb_cb *skb_cb;
-	struct ethhdr *eth_hdr;
-	struct ieee80211_hdr *hdr;
+	struct ieee80211_hdr_3addr *hdr;
+	u8 peer_addr[ETH_ALEN] = { 0x02, 0x02, 0x02, 0x02, 0x02, 0x02 };
 
+	/* 1) Basic data frame */
 	skb = fapi_alloc(ma_unitdata_ind, MA_UNITDATA_IND, SLSI_NET_INDEX_WLAN, 128);
 	skb_cb = slsi_skb_cb_get(skb);
 	skb_cb->wakeup = true;
-	eth_hdr = (struct ethhdr *)skb->data;
-	hdr = (struct ieee80211_hdr *)skb->data;
+	hdr = (struct ieee80211_hdr_3addr *)skb->data;
 	hdr->frame_control = cpu_to_le16(IEEE80211_FTYPE_DATA);
+	memcpy(hdr->addr1, peer_addr, ETH_ALEN);
+	memcpy(hdr->addr2, peer_addr, ETH_ALEN);
 	slsi_rx_data_ind(sdev, dev, skb);
 
+	/* 2) AP mode, peer set */
 	ndev_vif->vif_type = FAPI_VIFTYPE_AP;
 	skb = fapi_alloc(ma_unitdata_ind, MA_UNITDATA_IND, SLSI_NET_INDEX_WLAN, 128);
 	skb_cb = slsi_skb_cb_get(skb);
-	eth_hdr = (struct ethhdr *)skb->data;
 	skb_reserve(skb, 100);
-	hdr = (struct ieee80211_hdr *)skb->data;
+	hdr = (struct ieee80211_hdr_3addr *)skb->data;
 	hdr->frame_control = cpu_to_le16(IEEE80211_FTYPE_DATA);
+	memcpy(hdr->addr1, peer_addr, ETH_ALEN);
+	memcpy(hdr->addr2, peer_addr, ETH_ALEN);
 	skb_push(skb, fapi_get_siglen(skb));
 	ndev_vif->peer_sta_record[SLSI_STA_PEER_QUEUESET] = kunit_kzalloc(test, sizeof(struct slsi_peer), GFP_KERNEL);
 	ndev_vif->peer_sta_record[SLSI_STA_PEER_QUEUESET]->valid = true;
-	memcpy(ndev_vif->peer_sta_record[SLSI_STA_PEER_QUEUESET]->address, eth_hdr->h_source, ETH_ALEN);
+	memcpy(ndev_vif->peer_sta_record[SLSI_STA_PEER_QUEUESET]->address, peer_addr, ETH_ALEN);
 	slsi_rx_data_ind(sdev, dev, skb);
 
-	ndev_vif->peer_sta_record[SLSI_STA_PEER_QUEUESET]->valid = true;
-	memcpy(ndev_vif->peer_sta_record[SLSI_STA_PEER_QUEUESET]->address, eth_hdr->h_source, ETH_ALEN);
+	/* 3) STA mode, non-TDLS frame (FromDS set) */
 	ndev_vif->vif_type = FAPI_VIFTYPE_STATION;
 	skb = fapi_alloc(ma_unitdata_ind, MA_UNITDATA_IND, SLSI_NET_INDEX_WLAN, 128);
 	skb_cb = slsi_skb_cb_get(skb);
 	skb_reserve(skb, 100);
-	eth_hdr = (struct ethhdr *)skb->data;
-	hdr = (struct ieee80211_hdr *)skb->data;
+	hdr = (struct ieee80211_hdr_3addr *)skb->data;
 	hdr->frame_control = cpu_to_le16(IEEE80211_FTYPE_DATA);
+	memcpy(hdr->addr1, peer_addr, ETH_ALEN);
+	memcpy(hdr->addr2, peer_addr, ETH_ALEN);
 	skb_push(skb, fapi_get_siglen(skb));
 	ndev_vif->peer_sta_record[SLSI_STA_PEER_QUEUESET]->valid = true;
-	memcpy(ndev_vif->peer_sta_record[SLSI_STA_PEER_QUEUESET]->address, eth_hdr->h_source, ETH_ALEN);
+	memcpy(ndev_vif->peer_sta_record[SLSI_STA_PEER_QUEUESET]->address, peer_addr, ETH_ALEN);
 	slsi_rx_data_ind(sdev, dev, skb);
 	kfree_skb(skb);
 
+	/* 4) STA mode, non-TDLS frame (FromDS set), TDLS peer aid */
 	skb = fapi_alloc(ma_unitdata_ind, MA_UNITDATA_IND, SLSI_NET_INDEX_WLAN, 128);
 	skb_cb = slsi_skb_cb_get(skb);
-	skb_cb->is_tdls = false;
 	skb_reserve(skb, 100);
-	eth_hdr = (struct ethhdr *)skb->data;
-	hdr = (struct ieee80211_hdr *)skb->data;
+	hdr = (struct ieee80211_hdr_3addr *)skb->data;
 	hdr->frame_control = cpu_to_le16(IEEE80211_FTYPE_DATA | IEEE80211_FCTL_FROMDS);
+	memcpy(hdr->addr1, peer_addr, ETH_ALEN);
+	memcpy(hdr->addr2, peer_addr, ETH_ALEN);
 	skb_push(skb, fapi_get_siglen(skb));
 	ndev_vif->peer_sta_record[SLSI_STA_PEER_QUEUESET]->valid = true;
 	ndev_vif->peer_sta_record[SLSI_STA_PEER_QUEUESET]->aid = SLSI_TDLS_PEER_INDEX_MIN;
-	memcpy(ndev_vif->peer_sta_record[SLSI_STA_PEER_QUEUESET]->address, eth_hdr->h_source, ETH_ALEN);
+	memcpy(ndev_vif->peer_sta_record[SLSI_STA_PEER_QUEUESET]->address, peer_addr, ETH_ALEN);
 	slsi_rx_data_ind(sdev, dev, skb);
 
+	/* 5) Monitor mode */
+	skb = fapi_alloc(ma_unitdata_ind, MA_UNITDATA_IND, SLSI_NET_INDEX_WLAN, 128);
 	ndev_vif->vif_type = FAPI_VIFTYPE_MONITOR;
 	slsi_rx_data_ind(sdev, dev, skb);
 	kfree_skb(skb);

@@ -380,8 +380,7 @@ static void mfc_dec_buf_queue(struct vb2_buffer *vb)
 				buf->addr[0][0]);
 		mutex_unlock(&ctx->op_mode_mutex);
 
-		if (vb->memory == V4L2_MEMORY_DMABUF && !ctx->is_drm &&
-			mfc_rm_query_state(ctx, SMALLER, MFCINST_HEAD_PARSED))
+		if (vb->memory == V4L2_MEMORY_DMABUF && !ctx->is_drm)
 			stream_vir = vb2_plane_vaddr(vb, 0);
 
 		buf->vir_addr[0] = stream_vir;

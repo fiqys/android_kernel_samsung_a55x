@@ -576,7 +576,7 @@ int mfc_core_instance_deinit(struct mfc_core *core, struct mfc_ctx *ctx)
 	core->sched->clear_work(core, core_ctx);
 
 	/* If a H/W operation is in progress, wait for it complete */
-	if (need_to_wait_nal_abort(core_ctx)) {
+	if (NEED_TO_WAIT_NAL_ABORT(core_ctx)) {
 		if (mfc_wait_for_done_core_ctx(core_ctx, MFC_REG_R2H_CMD_NAL_ABORT_RET)) {
 			mfc_err("Failed to wait nal abort\n");
 			core->sched->yield_work(core, core_ctx);
@@ -838,30 +838,6 @@ int mfc_core_instance_move_from(struct mfc_core *core, struct mfc_ctx *ctx)
 	return ret;
 }
 
-static void __mfc_core_cancel_drc(struct mfc_core *core, struct mfc_core_ctx *core_ctx)
-{
-	struct mfc_ctx *ctx = core_ctx->ctx;
-
-	mfc_info("[DRC] DRC is running yet (state: %d) cancel DRC\n", core_ctx->state);
-
-	mutex_lock(&ctx->drc_wait_mutex);
-
-	if (!ctx->handle_drc_multi_mode) {
-		mfc_change_state(core_ctx, MFCINST_RES_CHANGE_END);
-	}
-
-	ctx->wait_state &= ~(WAIT_STOP);
-	mfc_debug(2, "clear WAIT_STOP %d\n", ctx->wait_state);
-	MFC_TRACE_CORE_CTX("** DEC clear WAIT_STOP(wait_state %d)\n",
-			ctx->wait_state);
-
-	if (ctx->wait_state != WAIT_G_FMT) {
-		ctx->wait_state = WAIT_G_FMT;
-		mfc_debug(2, "set WAIT_G_FMT only for inform to user that needs g_fmt\n");
-	}
-	mutex_unlock(&ctx->drc_wait_mutex);
-}
-
 void mfc_core_instance_dpb_flush(struct mfc_core *core, struct mfc_ctx *ctx)
 {
 	struct mfc_dec *dec = ctx->dec_priv;
@@ -881,11 +857,6 @@ void mfc_core_instance_dpb_flush(struct mfc_core *core, struct mfc_ctx *ctx)
 			goto cleanup;
 		return;
 	}
-
-	if (core_ctx->state == MFCINST_RES_CHANGE_INIT ||
-			core_ctx->state == MFCINST_RES_CHANGE_FLUSH ||
-			core_ctx->state == MFCINST_RES_CHANGE_FLUSH_FINISHED)
-		__mfc_core_cancel_drc(core, core_ctx);
 
 	mfc_cleanup_queue(&ctx->buf_queue_lock, &ctx->dst_buf_queue);
 	mfc_cleanup_queue(&ctx->buf_queue_lock, &ctx->err_buf_queue);
@@ -934,7 +905,7 @@ void mfc_core_instance_dpb_flush(struct mfc_core *core, struct mfc_ctx *ctx)
 	if (core_ctx->state == MFCINST_FINISHING)
 		mfc_change_state(core_ctx, MFCINST_RUNNING);
 
-	if (need_to_dpb_flush(core_ctx) && !ctx->dec_priv->inter_res_change) {
+	if (NEED_TO_DPB_FLUSH(core_ctx) && !ctx->dec_priv->inter_res_change) {
 		prev_state = core_ctx->state;
 		mfc_change_state(core_ctx, MFCINST_DPB_FLUSHING);
 		core->sched->set_work(core, core_ctx);
@@ -974,133 +945,6 @@ cleanup:
 	mfc_cleanup_queue(&ctx->buf_queue_lock, &ctx->err_buf_queue);
 }
 
-void mfc_core_instance_csd_parsing(struct mfc_core *core, struct mfc_ctx *ctx)
-{
-	struct mfc_dec *dec = ctx->dec_priv;
-	struct mfc_core_ctx *core_ctx = core->core_ctx[ctx->num];
-	struct mfc_buf *src_mb;
-	int index = 0, csd, condition = 0, ret = 0;
-	enum mfc_inst_state prev_state = MFCINST_FREE;
-
-	if ((core->state == MFCCORE_ERROR) || (core_ctx->state == MFCINST_ERROR))
-		goto cleanup;
-
-	ret = mfc_core_get_hwlock_ctx(core_ctx);
-	if (ret < 0) {
-		mfc_err("Failed to get hwlock\n");
-		MFC_TRACE_CTX_LT("[ERR][Release] failed to get hwlock (shutdown: %d)\n", core->shutdown);
-		if (core->shutdown)
-			goto cleanup;
-		return;
-	}
-
-	if (core_ctx->state == MFCINST_RES_CHANGE_INIT ||
-			core_ctx->state == MFCINST_RES_CHANGE_FLUSH ||
-			core_ctx->state == MFCINST_RES_CHANGE_FLUSH_FINISHED)
-		__mfc_core_cancel_drc(core, core_ctx);
-
-	/* Header parsed buffer is in src_buf_ready_queue */
-	mfc_move_buf_all(ctx, &core_ctx->src_buf_queue,
-			&ctx->src_buf_ready_queue, MFC_QUEUE_ADD_BOTTOM);
-	MFC_TRACE_CORE_CTX("CSD: Move all src to queue\n");
-
-	while (1) {
-		csd = mfc_check_buf_mb_flag(core_ctx, MFC_FLAG_CSD);
-		if (csd == 1) {
-			mfc_clean_core_ctx_int_flags(core_ctx);
-			if (need_to_special_parsing(core_ctx)) {
-				prev_state = core_ctx->state;
-				mfc_change_state(core_ctx, MFCINST_SPECIAL_PARSING);
-				condition = MFC_REG_R2H_CMD_SEQ_DONE_RET;
-				mfc_info("try to special parsing! (before NAL_START)\n");
-			} else if (need_to_special_parsing_nal(core_ctx)) {
-				prev_state = core_ctx->state;
-				mfc_change_state(core_ctx, MFCINST_SPECIAL_PARSING_NAL);
-				condition = MFC_REG_R2H_CMD_FRAME_DONE_RET;
-				mfc_info("try to special parsing! (after NAL_START)\n");
-			} else {
-				mfc_info("can't parsing CSD!, state = %d\n",
-						core_ctx->state);
-			}
-
-			if (condition) {
-				core->sched->set_work(core, core_ctx);
-
-				ret = mfc_core_just_run(core, core_ctx->num);
-				if (ret) {
-					mfc_err("Failed to run MFC\n");
-					mfc_change_state(core_ctx, prev_state);
-				} else {
-					if (mfc_wait_for_done_core_ctx(core_ctx, condition))
-						mfc_err("special parsing time out\n");
-				}
-			}
-		}
-
-		src_mb = mfc_get_del_buf(ctx, &core_ctx->src_buf_queue,
-				MFC_BUF_NO_TOUCH_USED);
-		if (!src_mb)
-			break;
-		else
-			MFC_TRACE_CORE_CTX("CSD: src[%d] DQ\n", src_mb->src_index);
-
-		mfc_debug(2, "src index %d(%d) DQ\n", src_mb->vb.vb2_buf.index,
-				src_mb->src_index);
-		vb2_set_plane_payload(&src_mb->vb.vb2_buf, 0, 0);
-		vb2_buffer_done(&src_mb->vb.vb2_buf, VB2_BUF_STATE_ERROR);
-	}
-
-	dec->consumed = 0;
-	core_ctx->check_dump = 0;
-	ctx->curr_src_index = -1;
-
-	mutex_lock(&ctx->op_mode_mutex);
-	ctx->serial_src_index = 0;
-	mutex_unlock(&ctx->op_mode_mutex);
-
-	if (!list_empty(&core_ctx->src_buf_queue.head)) {
-		mfc_err("core_ctx->src_buf_queue is not empty\n");
-		mfc_cleanup_queue(&ctx->buf_queue_lock,
-				&core_ctx->src_buf_queue);
-	}
-	if (!list_empty(&ctx->src_buf_ready_queue.head)) {
-		mfc_err("ctx->src_buf_ready_queue is not empty\n");
-		mfc_cleanup_queue(&ctx->buf_queue_lock,
-				&ctx->src_buf_ready_queue);
-	}
-	mfc_init_queue(&core_ctx->src_buf_queue);
-	mfc_init_queue(&ctx->src_buf_ready_queue);
-
-	if (core->dev->debugfs.meminfo_enable == 1)
-		mfc_meminfo_cleanup_inbuf_q(ctx);
-
-	while (index < MFC_MAX_BUFFERS) {
-		index = find_next_bit(ctx->src_ctrls_avail, MFC_MAX_BUFFERS, index);
-		if (index < MFC_MAX_BUFFERS)
-			call_cop(ctx, reset_buf_ctrls, &ctx->src_ctrls[index]);
-		index++;
-	}
-
-	if (core_ctx->state == MFCINST_FINISHING)
-		mfc_change_state(core_ctx, MFCINST_RUNNING);
-
-	mfc_debug(2, "decoder source stop sequence done\n");
-
-	core->sched->clear_work(core, core_ctx);
-	mfc_core_release_hwlock_ctx(core_ctx);
-
-	core->sched->enqueue_work(core, core_ctx);
-	if (core->sched->is_work(core))
-		core->sched->queue_work(core);
-
-	return;
-
-cleanup:
-	mfc_info("[MSR] Cleanup src buffers. It's Error state\n");
-	mfc_cleanup_queue(&ctx->buf_queue_lock, &core_ctx->src_buf_queue);
-	mfc_cleanup_queue(&ctx->buf_queue_lock, &ctx->src_buf_ready_queue);
-}
-
 int mfc_core_instance_init_buf(struct mfc_core *core, struct mfc_ctx *ctx)
 {
 	struct mfc_core_ctx *core_ctx = core->core_ctx[ctx->num];
@@ -1127,7 +971,7 @@ void mfc_core_instance_q_flush(struct mfc_core *core, struct mfc_ctx *ctx)
 	int ret = 0;
 
 	/* If a H/W operation is in progress, wait for it complete */
-	if (need_to_wait_nal_abort(core_ctx)) {
+	if (NEED_TO_WAIT_NAL_ABORT(core_ctx)) {
 		if (mfc_wait_for_done_core_ctx(core_ctx, MFC_REG_R2H_CMD_NAL_ABORT_RET)) {
 			mfc_err("time out during nal abort\n");
 			core->sched->yield_work(core, core_ctx);
@@ -1172,7 +1016,7 @@ void mfc_core_instance_finishing(struct mfc_core *core, struct mfc_ctx *ctx)
 	int ret = 0;
 
 	/* If a H/W operation is in progress, wait for it complete */
-	if (need_to_wait_nal_abort(core_ctx)) {
+	if (NEED_TO_WAIT_NAL_ABORT(core_ctx)) {
 		if (mfc_wait_for_done_core_ctx(core_ctx, MFC_REG_R2H_CMD_NAL_ABORT_RET)) {
 			mfc_err("time out during nal abort\n");
 			core->sched->yield_work(core, core_ctx);

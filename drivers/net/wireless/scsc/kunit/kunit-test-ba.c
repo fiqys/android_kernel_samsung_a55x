@@ -250,7 +250,8 @@ static void test_slsi_ba_process_frame(struct kunit *test)
 	peer->ba_session_rx[TEST_TID]->start_sn = 1;
 	peer->ba_session_rx[TEST_TID]->expected_sn = 1;
 	peer->ba_session_rx[TEST_TID]->buffer[0].active = false;
-	KUNIT_EXPECT_EQ(test, 0, slsi_ba_process_frame(dev, peer, skb, sequence_number, tid));
+	peer->ba_session_rx[TEST_TID]->last_sn_check = true;
+	KUNIT_EXPECT_EQ(test, 0, slsi_ba_process_frame(dev, peer, skb, sequence_number, TEST_TID));
 
 	sequence_number = 1;
 	peer->ba_session_rx[TEST_TID]->occupied_slots = 1;
@@ -281,6 +282,15 @@ static void test_slsi_ba_check(struct kunit *test)
 
 	peer->ba_session_rx[tid] = NULL;
 	KUNIT_EXPECT_EQ(test, false, slsi_ba_check(peer, tid));
+}
+
+static void test_slsi_ba_store_sn(struct kunit *test)
+{
+	struct net_device *dev = TEST_TO_DEV(test);
+	struct slsi_peer *peer = kunit_kzalloc(test, sizeof(struct slsi_peer), GFP_KERNEL);
+	struct sk_buff *skb = kunit_kzalloc(test, sizeof(struct sk_buff), GFP_KERNEL);
+
+	slsi_ba_store_sn(dev, peer, 0, 0);
 }
 
 static void test_slsi_rx_ba_stop(struct kunit *test)
@@ -452,6 +462,7 @@ static struct kunit_case ba_test_cases[] = {
 	KUNIT_CASE(test_slsi_ba_aging_timeout_handler),
 	KUNIT_CASE(test_slsi_ba_process_frame),
 	KUNIT_CASE(test_slsi_ba_check),
+	KUNIT_CASE(test_slsi_ba_store_sn),
 	KUNIT_CASE(test_slsi_rx_ba_stop),
 	KUNIT_CASE(test_slsi_rx_ba_stop_lock_held),
 	KUNIT_CASE(test_slsi_rx_ba_stop_lock_unheld),

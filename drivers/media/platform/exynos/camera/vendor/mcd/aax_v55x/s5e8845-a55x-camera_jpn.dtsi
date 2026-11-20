@@ -539,6 +539,10 @@
 		rom_power_position = <0>;
 		rom_size = <0x4FB0>;
 		check_dualize;
+		dualized_sensorinfo = "77 S5KGN5";
+		sensor_headerver = "N50ES";
+		sensor_dualized_headerver = "M50EL";
+		is_dualized_cal;
 		sensor_name_addr = <0x00A0>;
 		cal_map_es_version = <1>;
 		camera_module_es_version = "A";
@@ -555,7 +559,7 @@
 
 		use_standard_cal;
 
-		S5KGN500 {
+		M50EL {
 			/*20230713_A55_5G_CAM1(Wide_50M_GN5)_EEPROM_Rear_Cal map V008.001_QC_LSI_MTK_common_Map.xlsx */
 			crc_check_list = <
 				0x0100 0x013B 0x013C
@@ -601,7 +605,7 @@
 			rom_ois_list = <0x0150 0x0154 0x015C 0x015E 0x0178 0x017A 0x0170>;
 		};
 
-		IMX90600 {
+		N50ES {
 			/* 20230713_A55_5G_CAM1(Wide_50M_IMX906)_EEPROM_Rear_Cal map V008.001_QC_LSI_MTK_Common_Map.xlsx */
 			crc_check_list = <
 				0x0100 0x013B 0x013C

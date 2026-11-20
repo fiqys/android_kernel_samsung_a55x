@@ -110,11 +110,29 @@ static void __mfc_plugin_dump_trace(struct mfc_core *core)
 
 static void __mfc_plugin_dump_info_without_regs(struct mfc_core *core)
 {
-	struct mfc_core_ctx *core_ctx = core->core_ctx[core->curr_core_ctx];
-	struct mfc_ctx *ctx = core_ctx->ctx;
-	struct mfc_dec *dec = ctx->dec_priv;
+	struct mfc_core_ctx *core_ctx = NULL;
+	struct mfc_ctx *ctx = NULL;
+	struct mfc_dec *dec = NULL;
 	struct mfc_buf *mfc_buf = NULL;
 	int i;
+
+	core_ctx = core->core_ctx[core->curr_core_ctx];
+	if (!core_ctx) {
+		dev_err(core->device, "There is no core_ctx\n");
+		return;
+	}
+
+	ctx = core_ctx->ctx;
+	if (!ctx) {
+		dev_err(core->device, "There is no ctx\n");
+		return;
+	}
+
+	dec = ctx->dec_priv;
+	if (!dec) {
+		dev_err(core->device, "There is no dec\n");
+		return;
+	}
 
 	dev_err(core->device, "-----------dumping Film grain info-----------\n");
 	dev_err(core->device, "power(FG):%d, clock:%d, num_inst:%d, num_drm_inst:%d\n",

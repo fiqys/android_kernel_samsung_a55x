@@ -35,6 +35,11 @@
 #include "local_packet_capture.h"
 #endif
 
+#ifdef CONFIG_SCSC_WLAN_WONDERTAP
+#include <wonder/wondertap.h>
+#include <net/ieee80211_radiotap.h>
+#endif
+
 #define IP4_OFFSET_TO_TOS_FIELD		1
 #define IP6_OFFSET_TO_TC_FIELD_0	0
 #define IP6_OFFSET_TO_TC_FIELD_1	1
@@ -1141,7 +1146,11 @@ static netdev_tx_t slsi_net_hw_xmit(struct sk_buff *skb, struct net_device *dev)
 	 * that are oddly aligned. Therefore it is acceptable to copy these
 	 * frames to a 16 bit alignment.
 	 */
+#ifdef CONFIG_SCSC_WLAN_WONDERTAP
+	if ((uintptr_t)skb->data & 0x1 && ndev_vif->ifnum != SLSI_NET_INDEX_RELAY) {
+#else
 	if ((uintptr_t)skb->data & 0x1) {
+#endif
 		struct sk_buff *skb2 = NULL;
 		/* Received a socket buffer aligned on an odd address.
 		 * Re-align by asking for headroom.
@@ -1172,6 +1181,17 @@ static netdev_tx_t slsi_net_hw_xmit(struct sk_buff *skb, struct net_device *dev)
 	 */
 	if (!skb_mac_header_was_set(skb))
 		skb_reset_mac_header(skb);
+#ifdef CONFIG_SCSC_WLAN_WONDERTAP
+	if (ndev_vif->ifnum == SLSI_NET_INDEX_RELAY) {
+		skb_reset_mac_header(skb);
+		skb->mac_header += sizeof(struct ieee80211_radiotap_header) + 1;
+		if (slsi_tx_wondertap_push_eth_header(skb)) {
+			SLSI_NET_WARN(dev, "failed to push ethernet header\n");
+			r = -EFAULT;
+			goto evaluate;
+		}
+	}
+#endif
 #ifdef CONFIG_SCSC_WLAN_TX_API
 	if (is_zero_ether_addr(ehdr->h_source)) {
 		SLSI_NET_WARN(dev, "invalid source address (src:" MACSTR ")\n", MAC2STR(ehdr->h_source));
@@ -1180,7 +1200,12 @@ static netdev_tx_t slsi_net_hw_xmit(struct sk_buff *skb, struct net_device *dev)
 		goto evaluate;
 	}
 
-	if (!slsi_get_peer_from_mac(sdev, dev, ehdr->h_dest) && !is_multicast_ether_addr(ehdr->h_dest)) {
+	if (!slsi_get_peer_from_mac(sdev, dev, ehdr->h_dest)
+	    && !is_multicast_ether_addr(ehdr->h_dest)
+#ifdef CONFIG_SCSC_WLAN_WONDERTAP
+	    && ndev_vif->ifnum != SLSI_NET_INDEX_RELAY
+#endif
+	    ) {
 		SLSI_NET_DBG1(dev, SLSI_TX, "Discard:peer %pM NOT found\n", ehdr->h_dest);
 		r = -EFAULT;
 		goto evaluate;
@@ -2171,7 +2196,9 @@ int slsi_netif_register_locked(struct slsi_dev *sdev, struct net_device *dev, bo
 	int               err;
 
 	WLBT_WARN_ON(!rtnl_is_locked());
-	WLBT_WARN_ON(!SLSI_MUTEX_IS_LOCKED(sdev->netdev_add_remove_mutex));
+	/* removing a redundant WLBT_WARN_ON check for sdev->netdev_add_remove_mutex in netif.c during net_device registration.
+	 * The check was deemed unnecessary as the mutex is not required to be held during registration.
+	 */
 	if (atomic_read(&ndev_vif->is_registered)) {
 		SLSI_NET_ERR(dev, "Register:" MACSTR " Failed: Already registered\n", MAC2STR(dev->dev_addr));
 		return 0;
@@ -2329,12 +2356,17 @@ void slsi_netif_remove_locked(struct slsi_dev *sdev, struct net_device *dev, boo
 #else
 		unregister_netdevice(dev);
 #endif
+		slsi_wake_lock_destroy(&ndev_vif->wlan_wl_sae);
 	} else {
+		/* ndev_vif is netdev_priv(dev): it dies with free_netdev(), so the
+		 * wake lock must go first. Reachable when a netdev was allocated
+		 * but its registration failed.
+		 */
+		slsi_wake_lock_destroy(&ndev_vif->wlan_wl_sae);
 		mutex_lock(&sdev->netdev_remove_mutex);
 		free_netdev(dev);
 		mutex_unlock(&sdev->netdev_remove_mutex);
 	}
-	slsi_wake_lock_destroy(&ndev_vif->wlan_wl_sae);
 }
 
 void slsi_netif_remove_rtlnl_locked(struct slsi_dev *sdev, struct net_device *dev, bool is_cfg80211)

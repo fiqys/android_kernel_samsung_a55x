@@ -128,14 +128,14 @@ irq_handle:
 			mfc_fg_set_cmd_to_idle(core);
 	}
 
+	core->sched->dequeue_work(core, core_ctx);
+
+	mfc_plugin_hwlock_handler(core_ctx);
+
 	if (core->dev->pdata->support_fg_shadow) {
 		spin_unlock_irqrestore(&core->fg_q_handle->lock, flags);
 		is_fg_lock_held = false;
 	}
-
-	core->sched->dequeue_work(core, core_ctx);
-
-	mfc_plugin_hwlock_handler(core_ctx);
 
 irq_end:
 	if (is_fg_lock_held)

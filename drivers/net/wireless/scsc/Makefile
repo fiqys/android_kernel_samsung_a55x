@@ -122,6 +122,11 @@ ifeq ($(CONFIG_SCSC_WLAN_TRACEPOINT_DEBUG),y)
 scsc_wlan-$(CONFIG_SCSC_WLAN) += slsi_tracepoint_debug.o
 endif
 
+ifneq ($(filter-out 0,(CONFIG_SCSC_WLAN_WONDERTAP)),)
+ccflags-y += -I$(srctree)/drivers/net/wireless/wonder/include
+scsc_wlan-$(CONFIG_SCSC_WLAN) += slsi_wondertap.o
+endif
+
 # ----------------------------------------------------------------------------
 # CPU Hotplug Monitor
 # ----------------------------------------------------------------------------

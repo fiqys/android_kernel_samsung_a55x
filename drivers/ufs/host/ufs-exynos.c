@@ -151,7 +151,7 @@ static inline void __pm_qos_ctrl(struct exynos_ufs *ufs, bool op)
 	if (!hba)
 		return;
 
-	if (!op && !hba->pm_op_in_progress) {
+	if (!op && !hba->pm_op_in_progress && ufs->ah8_ahit) {
 		reg = hci_readl(handle, HCI_AH8_STATE);
 
 		if (reg & ~HCI_AH8_HIBERNATION_STATE) {

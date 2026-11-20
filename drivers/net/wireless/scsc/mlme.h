@@ -9,7 +9,9 @@
 
 #include "dev.h"
 #include "mib.h"
-
+#if CONFIG_SCSC_WLAN_WONDERTAP
+#include "slsi_wondertap.h"
+#endif
 enum slsi_ac_index_wmm_pe {
 	AC_BE,
 	AC_BK,
@@ -585,3 +587,10 @@ int slsi_mlme_set_scan_timing_req(struct slsi_dev *sdev, struct net_device *dev,
 int slsi_mlme_set_low_latency_mode_req(struct slsi_dev *sdev, struct net_device *dev, u16 latency_mode);
 int slsi_mlme_set_max_bw(struct slsi_dev *sdev, struct net_device *dev, u16 protection_scope,
 			 u16 announce_validate, u16 bandwidth);
+#if CONFIG_SCSC_WLAN_WONDERTAP
+int slsi_mlme_relay_start_request(struct slsi_dev *sdev, struct net_device *dev, struct vendor_hardware_ctx *ctx);
+int slsi_mlme_relay_set_channel_request(struct slsi_dev *sdev, struct net_device *dev, const struct wondertap_set_freq_params *params);
+int slsi_mlme_relay_fixed_tx_rate_request(struct slsi_dev *sdev, struct net_device *dev, struct vendor_hardware_ctx *ctx);
+int slsi_mlme_relay_tx_rate_mask_request(struct slsi_dev *sdev, struct net_device *dev, struct vendor_hardware_ctx *ctx);
+int slsi_mlme_relay_set_peer_info_request(struct slsi_dev *sdev, struct net_device *dev, struct vendor_hardware_ctx *ctx);
+#endif

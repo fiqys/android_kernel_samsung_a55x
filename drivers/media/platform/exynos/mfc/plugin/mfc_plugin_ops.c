@@ -88,15 +88,23 @@ err_init_inst:
 
 int mfc_plugin_instance_deinit(struct mfc_core *core, struct mfc_ctx *ctx)
 {
-	struct mfc_core_ctx *core_ctx = core->core_ctx[ctx->num];
-	int cnt = 0, ret = 0;
+	struct mfc_core_ctx *core_ctx = NULL;
+	int cnt = 0, ret = 0, eos = 0;
 	unsigned long flags;
 	int i;
 
-	mfc_debug_enter();
+	mfc_ctx_debug_enter();
+
+	core_ctx = core->core_ctx[ctx->num];
+	if (!core_ctx) {
+		mfc_ctx_err("[PLUGIN] There is no core_ctx, it could already be deinit\n");
+		mfc_ctx_debug_leave();
+		return 0;
+	}
 
 	if (core_ctx->state == MFCINST_FREE) {
 		mfc_debug(2, "[PLUGIN] instance already deinit\n");
+		mfc_ctx_debug_leave();
 		return 0;
 	}
 
@@ -126,8 +134,15 @@ int mfc_plugin_instance_deinit(struct mfc_core *core, struct mfc_ctx *ctx)
 		}
 		spin_unlock_irqrestore(&core->fg_q_handle->lock, flags);
 	}
-	cnt = mfc_get_queue_count_no_used(&ctx->buf_queue_lock, &ctx->plugin_buf_queue);
-	mfc_debug(2, "[PLUGIN] plug-in job remained %d\n", cnt);
+
+	/* Only handle when EoS remains in plugin_buf_queue */
+	cnt = mfc_get_queue_count_with_eos(&ctx->buf_queue_lock, &ctx->plugin_buf_queue, &eos);
+	mfc_debug(2, "[PLUGIN] plug-in job remained: %d%s%s\n",
+		cnt, eos ? " handle for EoS" : "", (cnt && !eos) ? " but skip" : "");
+	MFC_TRACE_CORE_CTX("plug-in job remained: %d%s%s\n",
+		cnt, eos ? " handle for EoS" : "", (cnt && !eos) ? " but skip" : "");
+	if (!eos)
+		cnt = 0;
 	while (cnt--) {
 		ret = mfc_plugin_just_run(core_ctx);
 		if (ret < 0) {
@@ -180,11 +195,31 @@ cleanup:
 int mfc_plugin_request_work(struct mfc_core *core, enum mfc_request_work work,
 		struct mfc_ctx *ctx)
 {
-	int ret = 0;
+	struct mfc_core_ctx *core_ctx = NULL;
+	int ret = 0, cnt;
 
 	mfc_core_debug_enter();
 
-	core->sched->queue_work(core);
+	if (work == MFC_WORK_CHANGE_STATE) {
+		core_ctx = core->core_ctx[ctx->num];
+		if (!core_ctx) {
+			mfc_core_err("[PLUGIN] there is no core_ctx\n");
+			return -EINVAL;
+		}
+
+		cnt = mfc_get_queue_count_no_used(&ctx->buf_queue_lock, &ctx->plugin_buf_queue);
+		mfc_info("[PLUGIN][DRC] res change from %dx%d (queue: %d, exe: %d, ready: %d)\n",
+			ctx->img_width, ctx->img_height,
+			core->fg_q_handle->queue_count, core->fg_q_handle->exe_count, cnt);
+		MFC_TRACE_CORE_CTX("[PLUGIN][DRC] from %dx%d, queue: %d exe: %d ready: %d\n",
+			ctx->img_width, ctx->img_height,
+			core->fg_q_handle->queue_count, core->fg_q_handle->exe_count, cnt);
+
+		mfc_change_state(core_ctx, MFCINST_RES_CHANGE_FLUSH);
+		core->sched->clear_work(core, core_ctx);
+	} else {
+		core->sched->queue_work(core);
+	}
 
 	mfc_core_debug_leave();
 

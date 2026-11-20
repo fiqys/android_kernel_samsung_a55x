@@ -78,6 +78,7 @@ static int sm5714_trigger_pre_flash(void *data) {
 }
 #endif
 
+static u32 sensor_id[SENSOR_POSITION_MAX][2];
 static bool is_hw_init_running;
 static bool check_hw_init;
 static struct mutex g_efs_mutex;
@@ -634,8 +635,10 @@ int is_vendor_probe(struct is_vendor *vendor)
 	vendor_priv->tof_info.TOFFps = 0;
 
 	for (i = 0; i < ROM_ID_MAX; i++) {
-		vendor_priv->rom[i].client = NULL;
-		vendor_priv->rom[i].valid = false;
+		vendor_priv->rom[i].client[0] = NULL;
+		vendor_priv->rom[i].client[1] = NULL;
+		vendor_priv->rom[i].valid[0] = false;
+		vendor_priv->rom[i].valid[1] = false;
 	}
 
 	vendor->private_data = vendor_priv;
@@ -710,11 +713,120 @@ int is_vendor_driver_exit(void)
 }
 #endif
 
-int is_vendor_rom_parse_dt_specific(struct device_node *dnode, int rom_id, struct is_vendor_rom *rom_info)
+static void is_vendor_rom_parse_dt_child(struct device_node *child_node, struct is_vendor_rom *rom_info)
 {
+	const u32 *crc_check_list_spec;
+	const u32 *rom_af_cal_addr_spec;
+	const u32 *rom_ois_list_spec;
+	int ret = 0;
+#ifdef IS_DEVICE_ROM_DEBUG
+	int i;
+#endif
+	u32 temp;
+	char *pprop;
+	struct is_vendor_standard_cal *standard_cal_data;
 
+	if (!child_node)
+		return;
+
+	crc_check_list_spec = of_get_property(child_node, "crc_check_list", &rom_info->crc_check_list_len);
+	if (crc_check_list_spec) {
+		rom_info->crc_check_list_len /= (unsigned int)sizeof(*crc_check_list_spec);
+
+		BUG_ON(rom_info->crc_check_list_len > IS_ROM_CRC_MAX_LIST);
+
+		ret = of_property_read_u32_array(child_node, "crc_check_list",
+			rom_info->crc_check_list, rom_info->crc_check_list_len);
+		if (ret)
+			err("Not exist crc_check_list in child DT(%d)", ret);
+#ifdef IS_DEVICE_ROM_DEBUG
+		else {
+			info("crc_check_list :");
+			for (i = 0; i < rom_info->crc_check_list_len; i++)
+				info(" %d ", rom_info->crc_check_list[i]);
+			info("\n");
+		}
+#endif
+	}
+
+	rom_af_cal_addr_spec = of_get_property(child_node, "rom_af_cal_addr", &rom_info->rom_af_cal_addr_len);
+	if (rom_af_cal_addr_spec) {
+		rom_info->rom_af_cal_addr_len /= (unsigned int)sizeof(*rom_af_cal_addr_spec);
+
+		BUG_ON(rom_info->rom_af_cal_addr_len > AF_CAL_MAX);
+
+		ret = of_property_read_u32_array(child_node, "rom_af_cal_addr",
+			rom_info->rom_af_cal_addr, rom_info->rom_af_cal_addr_len);
+		if (ret)
+			info("Not exist rom_af_cal_addr in child DT(%d)", ret);
+	}
+
+	rom_ois_list_spec = of_get_property(child_node, "rom_ois_list", &rom_info->rom_ois_list_len);
+	if (rom_ois_list_spec) {
+		rom_info->rom_ois_list_len /= (unsigned int)sizeof(*rom_ois_list_spec);
+
+		ret = of_property_read_u32_array(child_node, "rom_ois_list",
+			rom_info->rom_ois_list, rom_info->rom_ois_list_len);
+		if (ret)
+			info("Not exist rom_ois_list in child DT(%d)", ret);
+#ifdef IS_DEVICE_ROM_DEBUG
+		else {
+			info("rom_ois_list :");
+			for (i = 0; i < rom_info->rom_ois_list_len; i++)
+				info(" %d ", rom_info->rom_ois_list[i]);
+			info("\n");
+		}
+#endif
+	}
+
+	DT_READ_U32_DEFAULT(child_node, "rom_header_mtf_data_addr", rom_info->rom_header_mtf_data_addr, -1);
+	DT_READ_U32_DEFAULT(child_node, "rom_awb_master_addr", rom_info->rom_awb_master_addr, -1);
+	DT_READ_U32_DEFAULT(child_node, "rom_paf_cal_start_addr", rom_info->rom_paf_cal_start_addr, -1);
+	DT_READ_U32_DEFAULT(child_node, "rom_xtc_cal_data_start_addr", rom_info->rom_xtc_cal_data_start_addr, -1);
+	DT_READ_U32_DEFAULT(child_node, "rom_xtc_cal_data_size", rom_info->rom_xtc_cal_data_size, -1);
+
+	if (rom_info->use_standard_cal) {
+		standard_cal_data = &(rom_info->standard_cal_data);
+		DT_READ_U32_DEFAULT(child_node, "rom_standard_cal_start_addr",
+					standard_cal_data->rom_standard_cal_start_addr, -1);
+		DT_READ_U32_DEFAULT(child_node, "rom_standard_cal_end_addr",
+					standard_cal_data->rom_standard_cal_end_addr, -1);
+		DT_READ_U32_DEFAULT(child_node, "rom_standard_cal_sec2lsi_end_addr",
+					standard_cal_data->rom_standard_cal_sec2lsi_end_addr, -1);
+		DT_READ_U32_DEFAULT(child_node, "rom_awb_start_addr", standard_cal_data->rom_awb_start_addr, -1);
+		DT_READ_U32_DEFAULT(child_node, "rom_awb_end_addr", standard_cal_data->rom_awb_end_addr, -1);
+		DT_READ_U32_DEFAULT(child_node, "rom_shading_start_addr", standard_cal_data->rom_shading_start_addr, -1);
+		DT_READ_U32_DEFAULT(child_node, "rom_shading_end_addr", standard_cal_data->rom_shading_end_addr, -1);
+		DT_READ_U32_DEFAULT(child_node, "rom_factory_start_addr", standard_cal_data->rom_factory_start_addr, -1);
+		DT_READ_U32_DEFAULT(child_node, "rom_factory_end_addr", standard_cal_data->rom_factory_end_addr, -1);
+		DT_READ_U32_DEFAULT(child_node, "rom_awb_sec2lsi_start_addr",
+					standard_cal_data->rom_awb_sec2lsi_start_addr, -1);
+		DT_READ_U32_DEFAULT(child_node, "rom_awb_sec2lsi_end_addr",
+					standard_cal_data->rom_awb_sec2lsi_end_addr, -1);
+		DT_READ_U32_DEFAULT(child_node, "rom_awb_sec2lsi_checksum_addr",
+					standard_cal_data->rom_awb_sec2lsi_checksum_addr, -1);
+		DT_READ_U32_DEFAULT(child_node, "rom_awb_sec2lsi_checksum_len",
+					standard_cal_data->rom_awb_sec2lsi_checksum_len, -1);
+		DT_READ_U32_DEFAULT(child_node, "rom_shading_sec2lsi_start_addr",
+					standard_cal_data->rom_shading_sec2lsi_start_addr, -1);
+		DT_READ_U32_DEFAULT(child_node, "rom_shading_sec2lsi_end_addr",
+					standard_cal_data->rom_shading_sec2lsi_end_addr, -1);
+		DT_READ_U32_DEFAULT(child_node, "rom_shading_sec2lsi_checksum_addr",
+					standard_cal_data->rom_shading_sec2lsi_checksum_addr, -1);
+		DT_READ_U32_DEFAULT(child_node, "rom_shading_sec2lsi_checksum_len",
+					standard_cal_data->rom_shading_sec2lsi_checksum_len, -1);
+		DT_READ_U32_DEFAULT(child_node, "rom_factory_sec2lsi_start_addr",
+					standard_cal_data->rom_factory_sec2lsi_start_addr, -1);
+	}
+}
+
+int is_vendor_rom_parse_dt(struct device_node *dnode, int rom_id)
+{
+	const u32 *header_crc_check_list_spec;
 	const u32 *rom_af_cal_addr_spec;
 	const u32 *rom_sensor2_af_cal_addr_spec;
+	const u32 *rom_af_distance_cal_addr_spec;
+	const u32 *rom_sensor2_af_distance_cal_addr_spec;
 	const u32 *crc_check_list_spec;
 	const u32 *dual_crc_check_list_spec;
 	const u32 *rom_dualcal_slave0_tilt_list_spec;
@@ -724,7 +836,7 @@ int is_vendor_rom_parse_dt_specific(struct device_node *dnode, int rom_id, struc
 	const u32 *rom_ois_list_spec;
 	const u32 *tof_cal_size_list_spec;
 	const u32 *tof_cal_valid_list_spec;
-
+	const char *node_string;
 	int ret = 0;
 #ifdef IS_DEVICE_ROM_DEBUG
 	int i;
@@ -735,8 +847,76 @@ int is_vendor_rom_parse_dt_specific(struct device_node *dnode, int rom_id, struc
 	const u32 *rom_gcc_cal_data_addr_list_spec;
 	const u32 *rom_xtc_cal_data_addr_list_spec;
 
+	struct is_vendor_rom *rom_info, *primary_rom_info, *dualized_rom_info;
 	struct is_vendor_standard_cal *standard_cal_data;
+	struct device_node *child_node;
 
+	is_sec_get_rom_info(&primary_rom_info, rom_id);
+
+	if (of_property_read_bool(dnode, "is_dualized_cal") && !of_property_read_bool(dnode, "check_dualize"))
+		is_sec_get_dualized_rom_info(&rom_info, rom_id);
+	else
+		is_sec_get_rom_info(&rom_info, rom_id);
+
+read_dualized_rom_info:
+	memset(rom_info, 0, sizeof(struct is_vendor_rom));
+
+	ret = of_property_read_u32(dnode, "rom_type", &rom_info->rom_type);
+	BUG_ON(ret);
+
+	ret = of_property_read_u32(dnode, "rom_power_position", &rom_info->rom_power_position);
+	BUG_ON(ret);
+
+	ret = of_property_read_u32(dnode, "rom_size", &rom_info->rom_size);
+	BUG_ON(ret);
+
+	ret = of_property_read_u32(dnode, "cal_map_es_version", &rom_info->cal_map_es_version);
+	if (ret)
+		rom_info->cal_map_es_version = 0;
+
+	ret = of_property_read_string(dnode, "camera_module_es_version", &node_string);
+	if (ret)
+		rom_info->camera_module_es_version = 'A';
+	else
+		rom_info->camera_module_es_version = node_string[0];
+
+	rom_info->need_i2c_config = of_property_read_bool(dnode, "need_i2c_config");
+	rom_info->check_dualize = of_property_read_bool(dnode, "check_dualize");
+	rom_info->is_dualized_cal = of_property_read_bool(dnode, "is_dualized_cal");
+	if (rom_info->check_dualize && !rom_info->is_dualized_cal) {
+		ret = of_property_read_string(dnode, "dualized_sensorinfo", &rom_info->dualized_sensorinfo);
+		ret = of_property_read_string(dnode, "sensor_headerver", &rom_info->sensor_headerver);
+	} else if (!rom_info->check_dualize && rom_info->is_dualized_cal)
+		ret = of_property_read_string(dnode, "sensor_headerver", &rom_info->sensor_headerver);
+	rom_info->skip_cal_loading = of_property_read_bool(dnode, "skip_cal_loading");
+	rom_info->skip_crc_check = of_property_read_bool(dnode, "skip_crc_check");
+	rom_info->skip_header_loading = of_property_read_bool(dnode, "skip_header_loading");
+	rom_info->ignore_cal_crc_error = of_property_read_bool(dnode, "ignore_cal_crc_error");
+
+	info("[rom%d] power_position:%d, rom_size:0x%X, skip_cal_loading:%d, calmap_es:%d, module_es:%c\n",
+		rom_id, rom_info->rom_power_position, rom_info->rom_size, rom_info->skip_cal_loading,
+		rom_info->cal_map_es_version, rom_info->camera_module_es_version);
+
+	header_crc_check_list_spec = of_get_property(dnode, "header_crc_check_list",
+		&rom_info->header_crc_check_list_len);
+	if (header_crc_check_list_spec) {
+		rom_info->header_crc_check_list_len /= (unsigned int)sizeof(*header_crc_check_list_spec);
+
+		BUG_ON(rom_info->header_crc_check_list_len > IS_ROM_CRC_MAX_LIST);
+
+		ret = of_property_read_u32_array(dnode, "header_crc_check_list",
+			rom_info->header_crc_check_list, rom_info->header_crc_check_list_len);
+		if (ret)
+			err("Not exist header_crc_check_list in DT(%d)", ret);
+#ifdef IS_DEVICE_ROM_DEBUG
+		else {
+			info("header_crc_check_list :");
+			for (i = 0; i < rom_info->header_crc_check_list_len; i++)
+				info(" %d ", rom_info->header_crc_check_list[i]);
+			info("\n");
+		}
+#endif
+	}
 
 	crc_check_list_spec = of_get_property(dnode, "crc_check_list", &rom_info->crc_check_list_len);
 	if (crc_check_list_spec) {
@@ -753,6 +933,26 @@ int is_vendor_rom_parse_dt_specific(struct device_node *dnode, int rom_id, struc
 			info("crc_check_list :");
 			for (i = 0; i < rom_info->crc_check_list_len; i++)
 				info(" %d ", rom_info->crc_check_list[i]);
+			info("\n");
+		}
+#endif
+	}
+
+	crc_check_list_spec = of_get_property(dnode, "dualized_crc_check_list", &rom_info->dualized_crc_check_list_len);
+	if (crc_check_list_spec) {
+		rom_info->dualized_crc_check_list_len /= (unsigned int)sizeof(*crc_check_list_spec);
+
+		BUG_ON(rom_info->dualized_crc_check_list_len > IS_ROM_CRC_MAX_LIST);
+
+		ret = of_property_read_u32_array(dnode, "dualized_crc_check_list",
+			rom_info->dualized_crc_check_list, rom_info->dualized_crc_check_list_len);
+		if (ret)
+			err("Not exist dualized_crc_check_list in DT(%d)", ret);
+#ifdef IS_DEVICE_ROM_DEBUG
+		else {
+			info("dualized_crc_check_list :");
+			for (i = 0; i < rom_info->dualized_crc_check_list_len; i++)
+				info(" %d ", rom_info->dualized_crc_check_list[i]);
 			info("\n");
 		}
 #endif
@@ -784,6 +984,20 @@ int is_vendor_rom_parse_dt_specific(struct device_node *dnode, int rom_id, struc
 
 		ret = of_property_read_u32_array(dnode, "rom_af_cal_addr",
 			rom_info->rom_af_cal_addr, rom_info->rom_af_cal_addr_len);
+		if (ret)
+			info("Not exist rom_af_cal_addr in DT(%d)", ret);
+	}
+
+	rom_af_cal_addr_spec = of_get_property(dnode, "rom_dualized_af_cal_addr", &rom_info->rom_dualized_af_cal_addr_len);
+	if (rom_af_cal_addr_spec) {
+		rom_info->rom_dualized_af_cal_addr_len /= (unsigned int)sizeof(*rom_af_cal_addr_spec);
+
+		BUG_ON(rom_info->rom_dualized_af_cal_addr_len > AF_CAL_MAX);
+
+		ret = of_property_read_u32_array(dnode, "rom_dualized_af_cal_addr",
+			rom_info->rom_dualized_af_cal_addr, rom_info->rom_dualized_af_cal_addr_len);
+		if (ret)
+			info("Not exist rom_dualized_af_cal_addr in DT(%d)", ret);
 	}
 
 	rom_sensor2_af_cal_addr_spec = of_get_property(dnode, "rom_sensor2_af_cal_addr", &rom_info->rom_sensor2_af_cal_addr_len);
@@ -796,6 +1010,38 @@ int is_vendor_rom_parse_dt_specific(struct device_node *dnode, int rom_id, struc
 			rom_info->rom_sensor2_af_cal_addr, rom_info->rom_sensor2_af_cal_addr_len);
 		if (ret)
 			info("Not exist rom_sensor2_af_cal_addr in DT(%d)", ret);
+	}
+
+	rom_af_distance_cal_addr_spec = of_get_property(dnode, "rom_af_distance_cal_addr",
+					&rom_info->rom_af_distance_cal_addr_len);
+	if (rom_af_distance_cal_addr_spec) {
+		rom_info->rom_af_distance_cal_addr_len /= (unsigned int)sizeof(*rom_af_distance_cal_addr_spec);
+
+		if (rom_info->rom_af_distance_cal_addr_len > AF_CAL_DISTANCE_MAX) {
+			err("rom_af_distance_cal_addr_len > AF_CAL_DISTANCE_MAX");
+			rom_info->rom_af_distance_cal_addr_len = 0;
+		} else {
+			ret = of_property_read_u32_array(dnode, "rom_af_distance_cal_addr",
+				rom_info->rom_af_distance_cal_addr, rom_info->rom_af_distance_cal_addr_len);
+			if (ret)
+				info("Not exist rom_af_distance_cal_addr in DT(%d)", ret);
+		}
+	}
+
+	rom_sensor2_af_distance_cal_addr_spec = of_get_property(dnode, "rom_sensor2_af_distance_cal_addr",
+						&rom_info->rom_sensor2_af_distance_cal_addr_len);
+	if (rom_sensor2_af_distance_cal_addr_spec) {
+		rom_info->rom_sensor2_af_distance_cal_addr_len /= (unsigned int)sizeof(*rom_sensor2_af_distance_cal_addr_spec);
+
+		if (rom_info->rom_sensor2_af_distance_cal_addr_len > AF_CAL_DISTANCE_MAX) {
+			err("rom_info->rom_sensor2_af_distance_cal_addr_len > AF_CAL_DISTANCE_MAX");
+			rom_info->rom_sensor2_af_distance_cal_addr_len = 0;
+		} else {
+			ret = of_property_read_u32_array(dnode, "rom_sensor2_af_distance_cal_addr",
+				rom_info->rom_sensor2_af_distance_cal_addr, rom_info->rom_sensor2_af_distance_cal_addr_len);
+			if (ret)
+				info("Not exist rom_sensor2_af_distance_cal_addr in DT(%d)", ret);
+		}
 	}
 
 	rom_dualcal_slave0_tilt_list_spec
@@ -892,14 +1138,22 @@ int is_vendor_rom_parse_dt_specific(struct device_node *dnode, int rom_id, struc
 #endif
 	}
 
+	DT_READ_U32_DEFAULT(dnode, "rom_header_cal_data_start_addr", rom_info->rom_header_cal_data_start_addr, -1);
+	DT_READ_U32_DEFAULT(dnode, "rom_header_version_start_addr", rom_info->rom_header_version_start_addr, -1);
+	DT_READ_U32_DEFAULT(dnode, "rom_header_sensor2_version_start_addr", rom_info->rom_header_sensor2_version_start_addr, -1);
+	DT_READ_U32_DEFAULT(dnode, "rom_header_cal_map_ver_start_addr", rom_info->rom_header_cal_map_ver_start_addr, -1);
+	DT_READ_U32_DEFAULT(dnode, "rom_header_isp_setfile_ver_start_addr", rom_info->rom_header_isp_setfile_ver_start_addr, -1);
+	DT_READ_U32_DEFAULT(dnode, "rom_header_project_name_start_addr", rom_info->rom_header_project_name_start_addr, -1);
+	DT_READ_U32_DEFAULT(dnode, "rom_header_module_id_addr", rom_info->rom_header_module_id_addr, -1);
+	DT_READ_U32_DEFAULT(dnode, "rom_header_sensor_id_addr", rom_info->rom_header_sensor_id_addr, -1);
+	DT_READ_U32_DEFAULT(dnode, "rom_header_sensor2_id_addr", rom_info->rom_header_sensor2_id_addr, -1);
+	DT_READ_U32_DEFAULT(dnode, "rom_header_mtf_data_addr", rom_info->rom_header_mtf_data_addr, -1);
+	DT_READ_U32_DEFAULT(dnode, "rom_header_sensor2_mtf_data_addr", rom_info->rom_header_sensor2_mtf_data_addr, -1);
 
 	DT_READ_U32_DEFAULT(dnode, "rom_awb_master_addr", rom_info->rom_awb_master_addr, -1);
 	DT_READ_U32_DEFAULT(dnode, "rom_awb_module_addr", rom_info->rom_awb_module_addr, -1);
 	DT_READ_U32_DEFAULT(dnode, "rom_sensor2_awb_master_addr", rom_info->rom_sensor2_awb_master_addr, -1);
 	DT_READ_U32_DEFAULT(dnode, "rom_sensor2_awb_module_addr", rom_info->rom_sensor2_awb_module_addr, -1);
-
-	DT_READ_U32_DEFAULT(dnode, "rom_header_mtf_data_addr", rom_info->rom_header_mtf_data_addr, -1);
-	DT_READ_U32_DEFAULT(dnode, "rom_header_sensor2_mtf_data_addr", rom_info->rom_header_sensor2_mtf_data_addr, -1);
 
 	DT_READ_U32_DEFAULT(dnode, "rom_paf_cal_start_addr", rom_info->rom_paf_cal_start_addr, -1);
 	DT_READ_U32_DEFAULT(dnode, "rom_sensor2_paf_cal_start_addr", rom_info->rom_sensor2_paf_cal_start_addr, -1);
@@ -919,7 +1173,7 @@ int is_vendor_rom_parse_dt_specific(struct device_node *dnode, int rom_id, struc
 	DT_READ_U32_DEFAULT(dnode, "rom_xtc_cal_data_start_addr", rom_info->rom_xtc_cal_data_start_addr, -1);
 	DT_READ_U32_DEFAULT(dnode, "rom_xtc_cal_data_size", rom_info->rom_xtc_cal_data_size, -1);
 
-
+	rom_info->use_standard_cal = of_property_read_bool(dnode, "use_standard_cal");
 	rom_info->sec2lsi_conv_done = false;
 	if (rom_info->use_standard_cal) {
 		standard_cal_data = &(rom_info->standard_cal_data);
@@ -1070,108 +1324,30 @@ int is_vendor_rom_parse_dt_specific(struct device_node *dnode, int rom_id, struc
 
 	DT_READ_U32_DEFAULT(dnode, "rom_dualcal_slave1_dummy_flag_addr", rom_info->rom_dualcal_slave1_dummy_flag_addr, -1);
 
-	return 0;
-}
+	if (primary_rom_info->check_dualize && primary_rom_info->is_dualized_cal) {
+		ret = of_property_read_string(dnode, "sensor_headerver", &rom_info->sensor_headerver);
+		ret = of_property_read_string(dnode, "dualized_sensorinfo", &rom_info->dualized_sensorinfo);
 
-int is_vendor_dualized_rom_parse_dt(struct device_node *dnode, int rom_id)
-{
-	struct is_vendor_rom *rom_info;
-	struct device_node *rom_node = NULL;
-	is_sec_get_rom_info(&rom_info, rom_id);
+		child_node = of_find_node_by_name(dnode, rom_info->sensor_headerver);
+		is_vendor_rom_parse_dt_child(child_node, rom_info);
 
-	rom_node = of_find_node_by_name(dnode, rom_info->sensor_name);
-
-	if (!rom_node) {
-		err("%s cannot find dualized node by sensor name %s", __func__, rom_info->sensor_name);
-		return -EINVAL;
+		is_sec_get_dualized_rom_info(&dualized_rom_info, rom_id);
+		rom_info->is_dualized_cal = false;
+		dualized_rom_info->rom_type = rom_info->rom_type;
+		rom_info = dualized_rom_info;
+		goto read_dualized_rom_info;
 	}
 
-	info("%s sensor node %s selected for EEPROM read", __func__, rom_info->sensor_name);
-	return is_vendor_rom_parse_dt_specific(rom_node, rom_id, rom_info);
-}
-EXPORT_SYMBOL_GPL(is_vendor_dualized_rom_parse_dt);
-
-int is_vendor_rom_parse_dt(struct device_node *dnode, int rom_id)
-{
-	const u32 *header_crc_check_list_spec;
-	const char *node_string;
-	struct is_vendor_rom *rom_info;
-	int ret = 0;
-	u32 temp;
-	char *pprop;
-
-	is_sec_get_rom_info(&rom_info, rom_id);
-
-	memset(rom_info, 0, sizeof(struct is_vendor_rom));
-
-	ret = of_property_read_u32(dnode, "rom_type", &rom_info->rom_type);
-	BUG_ON(ret);
-
-	ret = of_property_read_u32(dnode, "rom_power_position", &rom_info->rom_power_position);
-	BUG_ON(ret);
-
-	ret = of_property_read_u32(dnode, "rom_size", &rom_info->rom_size);
-	BUG_ON(ret);
-
-	ret = of_property_read_u32(dnode, "cal_map_es_version", &rom_info->cal_map_es_version);
-	if (ret)
-		rom_info->cal_map_es_version = 0;
-
-	ret = of_property_read_string(dnode, "camera_module_es_version", &node_string);
-	if (ret)
-		rom_info->camera_module_es_version = 'A';
-	else
-		rom_info->camera_module_es_version = node_string[0];
-
-	rom_info->need_i2c_config = of_property_read_bool(dnode, "need_i2c_config");
-
-	rom_info->skip_cal_loading = of_property_read_bool(dnode, "skip_cal_loading");
-	rom_info->skip_crc_check = of_property_read_bool(dnode, "skip_crc_check");
-	rom_info->skip_header_loading = of_property_read_bool(dnode, "skip_header_loading");
-	rom_info->ignore_cal_crc_error = of_property_read_bool(dnode, "ignore_cal_crc_error");
-
-	info("[rom%d] power_position:%d, rom_size:0x%X, skip_cal_loading:%d, calmap_es:%d, module_es:%c\n",
-		rom_id, rom_info->rom_power_position, rom_info->rom_size, rom_info->skip_cal_loading,
-		rom_info->cal_map_es_version, rom_info->camera_module_es_version);
-
-	header_crc_check_list_spec = of_get_property(dnode, "header_crc_check_list",
-		&rom_info->header_crc_check_list_len);
-	if (header_crc_check_list_spec) {
-		rom_info->header_crc_check_list_len /= (unsigned int)sizeof(*header_crc_check_list_spec);
-
-		BUG_ON(rom_info->header_crc_check_list_len > IS_ROM_CRC_MAX_LIST);
-
-		ret = of_property_read_u32_array(dnode, "header_crc_check_list",
-			rom_info->header_crc_check_list, rom_info->header_crc_check_list_len);
-		if (ret)
-			err("header_crc_check_list read is fail(%d)", ret);
-#ifdef IS_DEVICE_ROM_DEBUG
-		else {
-			info("header_crc_check_list :");
-			for (i = 0; i < rom_info->header_crc_check_list_len; i++)
-				info(" %d ", rom_info->header_crc_check_list[i]);
-			info("\n");
-		}
-#endif
+	if (rom_info->is_dualized_cal && rom_info->is_dualized_cal) {
+		ret = of_property_read_string(dnode, "sensor_dualized_headerver", &rom_info->sensor_headerver);
+		rom_info->check_dualize = false;
 	}
 
-	DT_READ_U32_DEFAULT(dnode, "rom_header_cal_data_start_addr", rom_info->rom_header_cal_data_start_addr, -1);
-	DT_READ_U32_DEFAULT(dnode, "rom_header_version_start_addr", rom_info->rom_header_version_start_addr, -1);
-	DT_READ_U32_DEFAULT(dnode, "rom_header_sensor2_version_start_addr", rom_info->rom_header_sensor2_version_start_addr, -1);
-	DT_READ_U32_DEFAULT(dnode, "rom_header_cal_map_ver_start_addr", rom_info->rom_header_cal_map_ver_start_addr, -1);
-	DT_READ_U32_DEFAULT(dnode, "rom_header_isp_setfile_ver_start_addr", rom_info->rom_header_isp_setfile_ver_start_addr, -1);
-	DT_READ_U32_DEFAULT(dnode, "rom_header_project_name_start_addr", rom_info->rom_header_project_name_start_addr, -1);
-	DT_READ_U32_DEFAULT(dnode, "rom_header_module_id_addr", rom_info->rom_header_module_id_addr, -1);
-	DT_READ_U32_DEFAULT(dnode, "rom_header_sensor_id_addr", rom_info->rom_header_sensor_id_addr, -1);
-	DT_READ_U32_DEFAULT(dnode, "rom_header_sensor2_id_addr", rom_info->rom_header_sensor2_id_addr, -1);
-
-	rom_info->use_standard_cal = of_property_read_bool(dnode, "use_standard_cal");
-	rom_info->check_dualize = of_property_read_bool(dnode, "check_dualize");
-	if (rom_info->check_dualize){
-		ret = of_property_read_u32(dnode, "sensor_name_addr", &rom_info->sensor_name_addr);
-		BUG_ON(ret);
-	} else
-		is_vendor_rom_parse_dt_specific(dnode, rom_id, rom_info);
+	/* Parse child node for current rom_info using sensor_headerver name */
+	if (rom_info->sensor_headerver) {
+		child_node = of_find_node_by_name(dnode, rom_info->sensor_headerver);
+		is_vendor_rom_parse_dt_child(child_node, rom_info);
+	}
 
 	return 0;
 }
@@ -1433,9 +1609,9 @@ int is_vendor_hw_init(void)
 #endif
 
 	for (rom_id = 0; rom_id < ROM_ID_MAX; rom_id++) {
-		info("[%s] rom_id[%d] valid[%d]\n", __func__, rom_id, vendor_priv->rom[rom_id].valid);
+		info("[%s] rom_id[%d] valid[%d]\n", __func__, rom_id, vendor_priv->rom[rom_id].valid[0]);
 
-		if (vendor_priv->rom[rom_id].valid == true) {
+		if (vendor_priv->rom[rom_id].valid[0] == true) {
 			is_sec_get_rom_info(&rom_info, rom_id);
 			is_sec_rom_power_on(core, rom_info->rom_power_position);
 
@@ -1724,6 +1900,42 @@ void is_vendor_get_dualcal_file_name_from_position(int position,
 	else
 		*dual_cal_file_name = NULL;
 }
+
+int is_vendor_get_dualized_sensorid(int position) {
+	int ret = SENSOR_NAME_NOTHING;
+
+	if(position >= SENSOR_POSITION_REAR && position < SENSOR_POSITION_MAX) {
+		ret = sensor_id[position][1];
+	}
+	else {
+		err("%s invalid module position(%d)", __func__ , position);
+		ret = -EINVAL;
+	}
+	return ret;
+}
+
+int is_vendor_get_sensor_id_from_position(int position)
+{
+	struct is_core *core;
+	struct is_vendor_private *vendor_priv;
+	int sensor_id = SENSOR_NAME_NOTHING;
+
+	core = is_get_is_core();
+	if (!core) {
+		err("%s: core is NULL", __func__);
+		return SENSOR_NAME_NOTHING;
+	}
+
+	vendor_priv = core->vendor.private_data;
+
+	if (position >= SENSOR_POSITION_REAR && position < SENSOR_POSITION_MAX)
+		sensor_id = vendor_priv->sensor_id[position];
+	else
+		err("unsupported sensor id: %d", position);
+
+	return sensor_id;
+}
+EXPORT_SYMBOL_GPL(is_vendor_get_sensor_id_from_position);
 
 int is_vendor_get_dualcal_param_from_file(struct device *dev, char **buf, int position, int *size)
 {

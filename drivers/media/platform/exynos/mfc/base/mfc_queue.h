@@ -126,6 +126,35 @@ static inline void mfc_delete_queue(struct mfc_buf_queue *queue)
 	mfc_init_queue(queue);
 }
 
+static inline unsigned int mfc_get_queue_count_with_eos(spinlock_t *plock,
+		struct mfc_buf_queue *queue, int *eos)
+{
+	unsigned long flags;
+	struct mfc_buf *mfc_buf = NULL;
+	unsigned int ret = 0;
+
+	spin_lock_irqsave(plock, flags);
+
+	if (list_empty(&queue->head)) {
+		spin_unlock_irqrestore(plock, flags);
+		return ret;
+	}
+
+	list_for_each_entry(mfc_buf, &queue->head, list) {
+		if (mfc_buf->used)
+			continue;
+
+		if (mfc_buf->dpb_index == DEFAULT_TAG)
+			*eos = 1;
+
+		ret++;
+	}
+
+	spin_unlock_irqrestore(plock, flags);
+
+	return ret;
+}
+
 void mfc_add_tail_buf(struct mfc_ctx *ctx, struct mfc_buf_queue *queue,
 		struct mfc_buf *mfc_buf);
 
